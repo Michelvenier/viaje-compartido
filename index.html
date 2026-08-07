@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Viaje Compartido — Compartí el auto, compartí los gastos</title>
+<meta name="description" content="Viaje Compartido conecta conductores y pasajeros para compartir gastos de viajes de larga distancia en Argentina. No somos una empresa de transporte: somos el punto de encuentro." />
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="icon" href="data:,">
+</head>
+<body>
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a href="#/" class="brand">🚗 <span>Viaje</span><span class="brand-accent">Compartido</span></a>
+      <nav class="nav-links" id="nav-links">
+        <a href="#/buscar">Buscar viaje</a>
+        <a href="#/publicar">Publicar viaje</a>
+        <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a>
+        <a href="#/ayuda">Ayuda</a>
+      </nav>
+      <div class="nav-session" id="nav-session"></div>
+      <button class="nav-burger" id="nav-burger" aria-label="Menú">☰</button>
+    </div>
+  </header>
+
+  <main id="app"></main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-col">
+        <div class="brand small">🚗 <span>Viaje</span><span class="brand-accent">Compartido</span></div>
+        <p>Plataforma de economía colaborativa. Intermediamos la conexión entre conductores y pasajeros para compartir gastos de combustible y peajes — <strong>no somos una empresa de transporte ni brindamos el servicio de traslado.</strong></p>
+      </div>
+      <div class="footer-col">
+        <h4>La plataforma</h4>
+        <a href="#/reglas-de-la-ruta">Reglas de la Ruta (legal)</a>
+        <a href="#/ayuda">Preguntas frecuentes</a>
+        <a href="#/admin">Panel de administración (demo)</a>
+      </div>
+      <div class="footer-col">
+        <h4>¿Dudas?</h4>
+        <a href="https://wa.me/5490000000000" target="_blank" rel="noopener">💬 Escribinos por WhatsApp</a>
+        <p class="muted">Fase inicial: trayectos con origen o destino en La Plata, corredores Ruta 5 y Ruta 226.</p>
+      </div>
+    </div>
+    <div class="footer-bottom">© 2026 Viaje Compartido — Prototipo funcional. No constituye asesoramiento legal ni una interpretación normativa definitiva.</div>
+  </footer>
+
+  <div id="toast-container"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/state.js"></script>
+  <script src="/js/legal.js"></script>
+  <script src="/js/components.js"></script>
+  <script src="/js/views.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
