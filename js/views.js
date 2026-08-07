@@ -3,11 +3,19 @@
 
 const CIUDADES_CORREDOR = [
   "La Plata", "Chascomús", "Rauch", "Tandil", "Balcarce", "Necochea",
-  "Luján", "Mercedes", "Chivilcoy", "Bragado", "9 de Julio", "Trenque Lauquen",
+  "Luján", "Mercedes", "Chivilcoy", "Bragado", "9 de Julio",
+  "Carlos Casares", "Pehuajó", "Trenque Lauquen", "Santa Rosa",
 ];
 
-function datalistCiudades(id) {
-  return `<datalist id="${id}">${CIUDADES_CORREDOR.map((c) => `<option value="${c}">`).join("")}</datalist>`;
+// Menú desplegable real con todas las ciudades del corredor. Se usa tanto para
+// "Salgo de" como para "Voy a" (las mismas opciones en los dos, para poder
+// armar el viaje en cualquier sentido, incluyendo ida o vuelta a La Plata).
+function selectCiudades(name, selected, placeholder, required) {
+  const opciones = CIUDADES_CORREDOR.map(
+    (c) => `<option value="${c}" ${c === selected ? "selected" : ""}>${c}</option>`
+  ).join("");
+  const vacio = placeholder ? `<option value="" ${!selected ? "selected" : ""}>${placeholder}</option>` : "";
+  return `<select name="${name}" ${required ? "required" : ""}>${vacio}${opciones}</select>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -22,11 +30,11 @@ function viewHome(app) {
       <form class="search-box" id="home-search-form">
         <div class="field" style="margin-bottom:0">
           <label>Salgo de</label>
-          <input type="text" name="origen" placeholder="Ej: La Plata" list="dl-origen" value="La Plata" required>
+          ${selectCiudades("origen", "La Plata", "", true)}
         </div>
         <div class="field" style="margin-bottom:0">
           <label>Voy a</label>
-          <input type="text" name="destino" placeholder="Ej: Tandil" list="dl-destino" required>
+          ${selectCiudades("destino", "", "Elegí destino", true)}
         </div>
         <div class="field" style="margin-bottom:0">
           <label>Fecha</label>
@@ -34,7 +42,6 @@ function viewHome(app) {
         </div>
         <button type="submit" class="btn btn-primary">Buscar</button>
       </form>
-      ${datalistCiudades("dl-origen")}${datalistCiudades("dl-destino")}
     </section>
     <div class="disclaimer-strip">
       ⚖️ Viaje Compartido es una plataforma de intermediación entre particulares. <strong>No prestamos el servicio de transporte</strong> —
@@ -102,11 +109,11 @@ async function viewBuscar(app, params, query) {
         <form class="grid-3" id="buscar-form" style="align-items:end">
           <div class="field" style="margin-bottom:0">
             <label>Salgo de</label>
-            <input type="text" name="origen" list="dl-origen" value="${escapeHtml(query.origen || "")}">
+            ${selectCiudades("origen", query.origen || "", "Cualquier origen")}
           </div>
           <div class="field" style="margin-bottom:0">
             <label>Voy a</label>
-            <input type="text" name="destino" list="dl-destino" value="${escapeHtml(query.destino || "")}">
+            ${selectCiudades("destino", query.destino || "", "Cualquier destino")}
           </div>
           <div class="field" style="margin-bottom:0">
             <label>Fecha</label>
@@ -116,7 +123,6 @@ async function viewBuscar(app, params, query) {
             <button class="btn btn-primary" type="submit">Actualizar búsqueda</button>
           </div>
         </form>
-        ${datalistCiudades("dl-origen")}${datalistCiudades("dl-destino")}
       </div>
       <div id="resultados-lista"><p class="muted">Buscando viajes…</p></div>
     </div>
@@ -317,11 +323,11 @@ function viewPublicar(app) {
           <div class="field-row">
             <div class="field">
               <label>Ciudad de origen</label>
-              <input type="text" name="origen_ciudad" list="dl-origen" value="La Plata" required>
+              ${selectCiudades("origen_ciudad", "La Plata", "", true)}
             </div>
             <div class="field">
               <label>Ciudad de destino</label>
-              <input type="text" name="destino_ciudad" list="dl-destino" required>
+              ${selectCiudades("destino_ciudad", "", "Elegí destino", true)}
             </div>
           </div>
           <div class="field">
@@ -389,7 +395,6 @@ function viewPublicar(app) {
         </form>
       </div>
     </div>
-    ${datalistCiudades("dl-origen")}${datalistCiudades("dl-destino")}
   `;
   wireChips(app);
 
