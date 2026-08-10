@@ -96,6 +96,7 @@ async function initSchema() {
       vehiculo_patente TEXT,
       vehiculo_foto TEXT,
       vehiculo_asientos INTEGER DEFAULT 3,
+      alias_cobro TEXT,
       rating_promedio REAL DEFAULT 0,
       rating_count INTEGER DEFAULT 0,
       password TEXT,
@@ -162,12 +163,17 @@ async function initSchema() {
       clave TEXT PRIMARY KEY,
       valor TEXT NOT NULL
     );
+
+    -- Migración: si la tabla usuarios ya existía de antes (creada con un esquema viejo),
+    -- esto agrega la columna nueva sin borrar nada de lo que ya había.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alias_cobro TEXT;
   `);
 
   const defaults = [
     ["precio_nafta_super", "1450"],
     ["peaje_default_ruta5_226", "3200"],
     ["comision_plataforma_pct", "10"],
+    ["comision_minima", "2000"],
     ["consumo_litros_100km", "10"],
     ["tolerancia_ajuste_pct", "15"],
   ];

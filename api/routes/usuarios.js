@@ -36,6 +36,9 @@ function registrar(rol) {
       if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
         return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
       }
+      if (!body.alias_cobro) {
+        return badRequest(res, "Falta tu alias de Mercado Pago (o CBU/CVU) para que los pasajeros te transfieran su parte del viaje.");
+      }
     }
 
     const existente = await db.get("SELECT id FROM usuarios WHERE email = ?", [body.email]);
@@ -48,8 +51,8 @@ function registrar(rol) {
         pref_fuma, pref_mascotas, pref_musica, pref_charla, pref_equipaje, estado_validacion,
         doc_dni_frente, doc_dni_dorso, doc_selfie, doc_licencia, doc_cedula, doc_seguro, doc_vtv_declarada,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
-        created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        alias_cobro, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -81,6 +84,7 @@ function registrar(rol) {
         body.vehiculo_patente || null,
         body.vehiculo_foto || null,
         body.vehiculo_asientos || 3,
+        body.alias_cobro || null,
         nowIso(),
       ]
     );
@@ -120,6 +124,7 @@ async function actualizar(req, res, params) {
     "domicilio",
     "telefono",
     "vehiculo_asientos",
+    "alias_cobro",
   ];
   const sets = [];
   const values = [];

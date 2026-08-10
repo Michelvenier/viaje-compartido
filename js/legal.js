@@ -89,9 +89,10 @@ const LEGAL_SECTIONS = [
       le sirve. Al reservar, se envía la solicitud al conductor, quien puede <strong>aceptarla o rechazarla</strong>. Si la acepta, se
       habilitan los datos de contacto entre ambas partes para coordinar el punto de encuentro exacto.</p>
       <h4>4.3 Pago</h4>
-      <p>El pago se realiza <strong>dentro de la app</strong>, una vez que el conductor aceptó la reserva. Viaje Compartido retiene un
-      <strong>10% de comisión</strong> sobre el monto total como costo de intermediación y validación; el resto queda acreditado al
-      conductor una vez finalizado el viaje.</p>
+      <p>Dentro de la app, una vez que el conductor aceptó la reserva, el pasajero paga <strong>únicamente la comisión de Viaje
+      Compartido</strong> (10% del costo compartido del viaje, con un mínimo de $2.000). El resto del costo del viaje <strong>no lo
+      cobra la plataforma</strong>: el pasajero se lo transfiere directamente al conductor —por transferencia o QR de Mercado Pago a
+      su alias— al momento de viajar. Viaje Compartido factura solamente su comisión de intermediación y validación.</p>
       <h4>4.4 Ejecución y cierre</h4>
       <p>Al finalizar el trayecto, ambas partes califican su experiencia (puntuación general, habilidad de manejo, comodidad, etc.). Las
       calificaciones quedan visibles en el perfil público de cada usuario y ayudan a construir confianza en la comunidad.</p>
@@ -186,7 +187,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Cómo se paga?",
-    a: "Se paga dentro de la app, una vez que el conductor aceptó tu solicitud. Viaje Compartido retiene un 10% de comisión por la intermediación y validación; el resto se acredita al conductor cuando el viaje se completa.",
+    a: "En la app pagás solo la comisión de Viaje Compartido (10% del costo del viaje, con un mínimo de $2.000), una vez que el conductor aceptó tu solicitud. El resto del costo se lo transferís vos directamente al conductor —por transferencia o QR de Mercado Pago a su alias— al momento de viajar. La plataforma no cobra ni retiene esa parte.",
   },
   {
     q: "¿Puedo cancelar una reserva?",

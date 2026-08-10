@@ -67,7 +67,7 @@ function viewHome(app) {
         <div class="how-step card">
           <div class="num">3</div>
           <h3>Viajá y calificá</h3>
-          <p>Se paga dentro de la app. Al llegar, ambos se califican para seguir construyendo una comunidad confiable.</p>
+          <p>Pagás en la app solo la comisión de Viaje Compartido; el resto se lo transferís directo al conductor por transferencia o QR. Al llegar, ambos se califican.</p>
         </div>
       </div>
 
@@ -551,6 +551,11 @@ function viewRegistro(app, params) {
             <div class="field"><label>Patente</label><input type="text" id="f-patente" placeholder="Solo para control interno" value="${escapeHtml(data.vehiculo_patente || "")}"></div>
           </div>
           ${renderUploadField("vehiculo_foto", "Foto del auto", "Para que tus pasajeros te encuentren fácil en la plaza o la estación.")}
+          <div class="field">
+            <label>Alias de Mercado Pago (o CBU/CVU)</label>
+            <input type="text" id="f-alias" placeholder="Ej: martin.conductor.mp" value="${escapeHtml(data.alias_cobro || "")}">
+            <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias — Viaje Compartido solo cobra su comisión.</small>
+          </div>
           <div class="field"><label>Cantidad de asientos disponibles</label>
             <select id="f-asientos">
               <option value="1" ${data.vehiculo_asientos == 1 ? "selected" : ""}>1</option>
@@ -682,6 +687,7 @@ function viewRegistro(app, params) {
           vehiculo_marca: q("#f-marca")?.value, vehiculo_modelo: q("#f-modelo")?.value,
           vehiculo_color: q("#f-color")?.value, vehiculo_patente: q("#f-patente")?.value,
           vehiculo_foto: getUpload("vehiculo_foto") || data.vehiculo_foto,
+          alias_cobro: q("#f-alias")?.value,
           vehiculo_asientos: Number(q("#f-asientos")?.value) || 3,
           pref_charla: app.querySelector('[name="pref_charla"]')?.value || data.pref_charla,
           pref_musica: app.querySelector('[name="pref_musica"]')?.value || data.pref_musica,
@@ -729,6 +735,7 @@ function viewRegistro(app, params) {
     }
     if (rol === "conductor" && step === 3) {
       if (!data.vehiculo_marca || !data.vehiculo_modelo || !data.vehiculo_patente) errores.push("Completá los datos del vehículo.");
+      if (!data.alias_cobro) errores.push("Ingresá tu alias de Mercado Pago (o CBU/CVU) para que los pasajeros te transfieran.");
     }
     if (rol === "pasajero" && step === 1) {
       if (!data.nombre || !data.apellido) errores.push("Completá nombre y apellido.");
@@ -923,11 +930,16 @@ async function viewMisViajes(app) {
           <div style="text-align:right">
             <span class="status-pill ${r.estado}">${r.estado}</span>
             <div class="amount" style="font-size:1.1rem">${fmtMoney(r.monto_total)}</div>
-            ${r.pagado ? '<div class="muted" style="font-size:0.75rem">✅ Pagado</div>' : ""}
+            ${r.pagado ? '<div class="muted" style="font-size:0.75rem">✅ Comisión pagada</div>' : ""}
           </div>
         </div>
+        ${
+          r.pagado
+            ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} por transferencia o QR a su alias <strong>${r.conductor_alias ? escapeHtml(r.conductor_alias) : "(sin cargar)"}</strong> al momento de viajar.</div>`
+            : ""
+        }
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          ${r.estado === "aceptada" && !r.pagado ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar ahora</a>` : ""}
+          ${r.estado === "aceptada" && !r.pagado ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar comisión ahora</a>` : ""}
           ${["pendiente", "aceptada"].includes(r.estado) ? `<button class="btn btn-outline danger btn-sm" data-cancelar-reserva="${r.id}">Cancelar reserva</button>` : ""}
           ${r.estado === "completada" ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar viaje</a>` : ""}
         </div>
@@ -955,7 +967,14 @@ function renderSolicitudRow(r) {
         <div class="avatar">${iniciales(r.nombre, r.apellido)}</div>
         <div>
           <strong>${escapeHtml(r.nombre)} ${escapeHtml(r.apellido)}</strong>
-          <div class="muted">${r.asientos_reservados} asiento(s) · ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
+          <div class="muted">${r.asientos_reservados} asiento(s) · costo del viaje ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
+          ${
+            r.pagado
+              ? `<div class="muted" style="font-size:0.8rem">✅ Ya pagó la comisión de la plataforma. Te tiene que transferir <strong>${fmtMoney(r.monto_conductor)}</strong> directamente a tu alias al momento del viaje.</div>`
+              : r.estado === "aceptada"
+                ? `<div class="muted" style="font-size:0.8rem">Todavía no pagó la comisión de la plataforma.</div>`
+                : ""
+          }
         </div>
       </div>
       <div style="display:flex;gap:6px;align-items:center">
@@ -1015,14 +1034,19 @@ async function viewPagar(app, params) {
         <div class="price-breakdown">
           <div class="row"><span>Precio por asiento</span><span>${fmtMoney(reserva.precio_por_asiento)}</span></div>
           <div class="row"><span>Asientos reservados</span><span>${reserva.asientos_reservados}</span></div>
-          <div class="row total"><span>Total a pagar</span><span>${fmtMoney(reserva.monto_total)}</span></div>
+          <div class="row"><span>Costo compartido del viaje</span><span>${fmtMoney(reserva.monto_total)}</span></div>
+          <div class="row total"><span>Pagás ahora (comisión Viaje Compartido)</span><span>${fmtMoney(reserva.comision_plataforma)}</span></div>
         </div>
         <div class="info-box" style="margin-top:14px">
-          De este monto, Viaje Compartido retiene un ${fmtMoney(reserva.comision_plataforma)} (10%) de comisión por intermediación y
-          validación. El conductor recibe ${fmtMoney(reserva.monto_conductor)} una vez finalizado el viaje.
+          Viaje Compartido solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
+          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo transferís vos directamente al conductor
+          ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""}
+          por transferencia o QR de Mercado Pago a su alias
+          <strong>${reserva.conductor_alias ? escapeHtml(reserva.conductor_alias) : "(todavía no cargó su alias)"}</strong>
+          al momento de viajar.
         </div>
-        <button class="btn btn-primary btn-block" id="btn-pagar" style="margin-top:16px">💳 Pagar ${fmtMoney(reserva.monto_total)} (simulado)</button>
-        <p class="muted" style="margin-top:10px;text-align:center">Este es un pago simulado del prototipo — en producción se integraría un medio de pago real.</p>
+        <button class="btn btn-primary btn-block" id="btn-pagar" style="margin-top:16px">💳 Pagar comisión de ${fmtMoney(reserva.comision_plataforma)} (simulado)</button>
+        <p class="muted" style="margin-top:10px;text-align:center">Este es un pago simulado del prototipo — en producción se integraría un medio de pago real para cobrar solo la comisión. Recordá transferirle al conductor su parte por separado.</p>
       </div>
     </div>`;
   app.querySelector("#btn-pagar").addEventListener("click", async () => {
@@ -1176,6 +1200,7 @@ async function viewAdmin(app) {
           <div class="field"><label>Precio nafta súper ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
           <div class="field"><label>Peajes de referencia corredor Ruta 5/226 ($)</label><input type="number" name="peaje_default_ruta5_226" value="${config.peaje_default_ruta5_226}"></div>
           <div class="field"><label>Comisión de la plataforma (%)</label><input type="number" name="comision_plataforma_pct" value="${config.comision_plataforma_pct}"></div>
+          <div class="field"><label>Comisión mínima ($)</label><input type="number" name="comision_minima" value="${config.comision_minima}"></div>
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
           <div class="field"><label>Tolerancia de ajuste del conductor (%)</label><input type="number" name="tolerancia_ajuste_pct" value="${config.tolerancia_ajuste_pct}"></div>
           <div class="field" style="grid-column:1/-1"><button class="btn btn-primary" type="submit">Guardar valores</button></div>
@@ -1236,7 +1261,32 @@ async function viewPerfil(app) {
         ${fresco.estado_validacion === "rechazado" && fresco.motivo_rechazo ? `<div class="error-box" style="margin-top:14px">Motivo: ${escapeHtml(fresco.motivo_rechazo)}</div>` : ""}
         <p style="margin-top:14px"><strong>Email:</strong> ${escapeHtml(fresco.email)}<br><strong>Celular:</strong> ${escapeHtml(fresco.telefono || "-")}</p>
         ${fresco.rol === "conductor" ? `<p><strong>Vehículo:</strong> ${escapeHtml(fresco.vehiculo_marca || "")} ${escapeHtml(fresco.vehiculo_modelo || "")} ${fresco.vehiculo_color ? "· " + escapeHtml(fresco.vehiculo_color) : ""}</p>` : ""}
+        ${
+          fresco.rol === "conductor"
+            ? `<div class="field" style="margin-top:10px">
+                <label>Alias de Mercado Pago (o CBU/CVU) para cobrar</label>
+                <div class="field-row">
+                  <input type="text" id="f-perfil-alias" placeholder="Ej: martin.conductor.mp" value="${escapeHtml(fresco.alias_cobro || "")}">
+                  <button class="btn btn-outline" id="btn-guardar-alias">Guardar</button>
+                </div>
+                <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias.</small>
+              </div>`
+            : ""
+        }
         <a href="#/mis-viajes" class="btn btn-teal" style="margin-top:10px">Ir a ${fresco.rol === "conductor" ? "mis viajes publicados" : "mis reservas"}</a>
       </div>
     </div>`;
+  const btnAlias = app.querySelector("#btn-guardar-alias");
+  if (btnAlias) {
+    btnAlias.addEventListener("click", async () => {
+      try {
+        const alias = app.querySelector("#f-perfil-alias").value;
+        const actualizado = await Api.patch(`/api/usuarios/${fresco.id}`, { alias_cobro: alias });
+        Session.set(actualizado);
+        toast("Alias actualizado", "success");
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  }
 }

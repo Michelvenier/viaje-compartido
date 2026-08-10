@@ -51,6 +51,7 @@ async function actualizarConfig(req, res) {
     "precio_nafta_super",
     "peaje_default_ruta5_226",
     "comision_plataforma_pct",
+    "comision_minima",
     "consumo_litros_100km",
     "tolerancia_ajuste_pct",
   ];

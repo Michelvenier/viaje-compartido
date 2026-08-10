@@ -14,8 +14,8 @@ async function crearUsuario(datos) {
       pref_fuma, pref_mascotas, pref_musica, pref_charla, pref_equipaje, estado_validacion,
       doc_dni_frente, doc_dni_dorso, doc_selfie, doc_licencia, doc_cedula, doc_seguro, doc_vtv_declarada,
       vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
-      rating_promedio, rating_count, created_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      alias_cobro, rating_promedio, rating_count, created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT (email) DO NOTHING`,
     [
       id,
@@ -48,6 +48,7 @@ async function crearUsuario(datos) {
       datos.vehiculo_patente || null,
       datos.rol === "conductor" ? "demo.jpg" : null,
       datos.vehiculo_asientos || 3,
+      datos.rol === "conductor" ? datos.alias_cobro || `${(datos.nombre || "conductor").toLowerCase()}.mp` : null,
       datos.rating_promedio || 4.8,
       datos.rating_count || 12,
       nowIso(),

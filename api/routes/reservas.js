@@ -54,8 +54,9 @@ async function crear(req, res) {
 
 async function obtener(req, res, params) {
   const row = await db.get(
-    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id, v.precio_por_asiento
-     FROM reservas r JOIN viajes v ON v.id = r.viaje_id WHERE r.id = ?`,
+    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id, v.precio_por_asiento,
+            u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id WHERE r.id = ?`,
     [params.id]
   );
   if (!row) return notFound(res, "Reserva no encontrada");
@@ -64,8 +65,9 @@ async function obtener(req, res, params) {
 
 async function porPasajero(req, res, params) {
   const rows = await db.all(
-    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id
-     FROM reservas r JOIN viajes v ON v.id = r.viaje_id
+    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id,
+            u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id
      WHERE r.pasajero_id = ? ORDER BY r.created_at DESC`,
     [params.pasajeroId]
   );
@@ -119,7 +121,11 @@ async function cambiarEstado(req, res, params) {
 }
 
 async function pagar(req, res, params) {
-  const reserva = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
+  const reserva = await db.get(
+    `SELECT r.*, v.conductor_id, u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id WHERE r.id = ?`,
+    [params.id]
+  );
   if (!reserva) return notFound(res, "Reserva no encontrada");
   if (reserva.estado !== "aceptada") {
     return badRequest(res, "Solo se puede pagar una reserva ya aceptada por el conductor.");
@@ -128,7 +134,9 @@ async function pagar(req, res, params) {
   const actualizado = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
   ok(res, {
     reserva: filaReserva(actualizado),
-    mensaje: "Pago simulado registrado. El monto queda retenido por la plataforma hasta que se complete el viaje.",
+    mensaje: `Pago de la comisión de Viaje Compartido registrado ($${reserva.comision_plataforma}). Todavía le debés al conductor ` +
+      `$${reserva.monto_conductor} por el viaje en sí — transferíselos por transferencia o QR de Mercado Pago a su alias "${reserva.conductor_alias || "sin alias cargado"}" ` +
+      `al momento de viajar.`,
   });
 }
 

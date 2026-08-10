@@ -68,12 +68,17 @@ async function validarPrecioElegido({ precioSugerido, precioElegido, ctoTotal, a
   return { valido: true, techoAjuste, pisoAjuste, recaudacionTotal };
 }
 
+// Modelo de cobro: el pasajero le paga a Viaje Compartido SOLO la comisión de intermediación
+// (10% del costo compartido, con un mínimo de $2.000). El resto ("montoConductor") no lo cobra
+// la plataforma: el pasajero se lo transfiere directamente al conductor (por transferencia o QR
+// a su alias de Mercado Pago) al momento del viaje. Así la plataforma solo factura su comisión.
 async function calcularDesgloseReserva(precioPorAsiento, asientosReservados) {
   const comisionPct = (await getConfig("comision_plataforma_pct")) / 100;
+  const comisionMinima = (await getConfig("comision_minima")) || 0;
   const montoTotal = round2(precioPorAsiento * asientosReservados);
-  const comisionPlataforma = round2(montoTotal * comisionPct);
+  const comisionPlataforma = round2(Math.max(montoTotal * comisionPct, comisionMinima));
   const montoConductor = round2(montoTotal - comisionPlataforma);
-  return { montoTotal, comisionPlataforma, montoConductor, comisionPct: comisionPct * 100 };
+  return { montoTotal, comisionPlataforma, montoConductor, comisionPct: comisionPct * 100, comisionMinima };
 }
 
 function round2(n) {
