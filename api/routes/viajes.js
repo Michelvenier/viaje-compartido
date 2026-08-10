@@ -12,16 +12,19 @@ function filaViaje(row) {
   return copy;
 }
 
+// A propósito NO trae foto, bio, teléfono ni datos del vehículo: mientras el pasajero está
+// buscando o mirando el detalle de un viaje (todavía no reservó ni el conductor confirmó nada)
+// solo debe ver nombre y valoración — así no puede escribirle por fuera de la app antes de
+// confirmar y pagar. Los datos completos del conductor se exponen recién en las reservas
+// del pasajero, una vez que el conductor aceptó su solicitud (ver api/routes/reservas.js).
 async function conConductor(row) {
   const viaje = filaViaje(row);
   const conductor = await db.get(
-    `SELECT id, nombre, apellido, foto_perfil, bio, pref_fuma, pref_mascotas, pref_musica, pref_charla,
-            vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_foto, rating_promedio, rating_count,
-            estado_validacion
+    `SELECT id, nombre, apellido, rating_promedio, rating_count, estado_validacion
      FROM usuarios WHERE id = ?`,
     [viaje.conductor_id]
   );
-  viaje.conductor = boolFields(conductor, ["pref_fuma", "pref_mascotas"]);
+  viaje.conductor = conductor;
   return viaje;
 }
 
@@ -33,15 +36,7 @@ async function publicar(req, res) {
     return badRequest(res, "JSON inválido");
   }
 
-  const requeridos = [
-    "conductor_id",
-    "origen_direccion",
-    "origen_ciudad",
-    "destino_ciudad",
-    "fecha_salida",
-    "hora_salida",
-    "distancia_km",
-  ];
+  const requeridos = ["conductor_id", "origen_direccion", "origen_ciudad", "destino_ciudad", "fecha_salida", "hora_salida"];
   for (const campo of requeridos) {
     if (!body[campo]) return badRequest(res, `Falta el campo obligatorio: ${campo}`);
   }
@@ -58,20 +53,12 @@ async function publicar(req, res) {
   }
 
   const asientosOfrecidos = Math.min(Math.max(Number(body.asientos_totales) || 3, 1), 4);
-  const peajes = Number(body.peajes_estimados) || 0;
-  const calculo = await pricing.calcularPrecioSugerido(Number(body.distancia_km), peajes, asientosOfrecidos);
 
-  let precioPorAsiento = calculo.precioSugerido;
-  if (body.precio_por_asiento) {
-    const validacion = await pricing.validarPrecioElegido({
-      precioSugerido: calculo.precioSugerido,
-      precioElegido: Number(body.precio_por_asiento),
-      ctoTotal: calculo.ctoTotal,
-      asientosOfrecidos: calculo.asientosOfrecidos,
-    });
-    if (!validacion.valido) return badRequest(res, validacion.motivo);
-    precioPorAsiento = Number(body.precio_por_asiento);
-  }
+  // Distancia, peajes y precio se calculan SIEMPRE en el servidor a partir de las ciudades — no
+  // se toma ningún valor de distancia_km, peajes_estimados ni precio_por_asiento que venga del
+  // cliente, así nadie (ni el propio conductor) puede modificarlos. Ver api/corredor.js.
+  const calculo = await pricing.calcularPorCiudades(body.origen_ciudad, body.destino_ciudad, asientosOfrecidos);
+  if (calculo.error) return badRequest(res, calculo.error);
 
   const id = newId("trip");
   await db.run(
@@ -93,15 +80,15 @@ async function publicar(req, res) {
       body.fecha_salida,
       body.hora_salida,
       body.hora_llegada_estimada || null,
-      Number(body.distancia_km),
-      peajes,
+      calculo.distanciaKm,
+      calculo.peajesEstimados,
       calculo.precioNaftaUsado,
       calculo.litrosEstimados,
       calculo.costoCombustible,
       calculo.ctoTotal,
       calculo.divisor,
       calculo.precioSugerido,
-      precioPorAsiento,
+      calculo.precioSugerido,
       asientosOfrecidos,
       asientosOfrecidos,
       body.permite_mascotas ? 1 : 0,
@@ -155,8 +142,10 @@ async function cancelar(req, res, params) {
   const row = await db.get("SELECT * FROM viajes WHERE id = ?", [params.id]);
   if (!row) return notFound(res, "Viaje no encontrado");
   await db.run("UPDATE viajes SET estado = 'cancelado' WHERE id = ?", [params.id]);
+  // Si cancela el conductor, el reembolso es siempre total, sin importar cuándo lo haga (Reglas
+  // de la Ruta 2.5) — a diferencia de una cancelación del pasajero, que depende de las 24 hs.
   await db.run(
-    "UPDATE reservas SET estado = 'cancelada', actualizado_at = ? WHERE viaje_id = ? AND estado IN ('pendiente','aceptada')",
+    "UPDATE reservas SET estado = 'cancelada', actualizado_at = ?, reembolso_aplica = 1 WHERE viaje_id = ? AND estado IN ('pendiente','aceptada')",
     [nowIso(), params.id]
   );
   ok(res, { mensaje: "Viaje cancelado. Los pasajeros con reserva confirmada son reembolsados en su totalidad." });
@@ -169,19 +158,29 @@ async function calcularVista(req, res) {
   } catch {
     return badRequest(res, "JSON inválido");
   }
-  if (!body.distancia_km) return badRequest(res, "Falta la distancia en km");
+  if (!body.origen_ciudad || !body.destino_ciudad) return badRequest(res, "Elegí ciudad de origen y de destino.");
   const asientos = Math.min(Math.max(Number(body.asientos_totales) || 3, 1), 4);
-  const calculo = await pricing.calcularPrecioSugerido(
-    Number(body.distancia_km),
-    Number(body.peajes_estimados) || 0,
-    asientos
-  );
-  const tolerancia = await pricing.getConfig("tolerancia_ajuste_pct");
-  ok(res, {
-    ...calculo,
-    precioMinimoSugerido: pricing.round2(calculo.precioSugerido * (1 - tolerancia / 100)),
-    precioMaximoPermitido: pricing.round2(calculo.precioSugerido * (1 + tolerancia / 100)),
-  });
+  const calculo = await pricing.calcularPorCiudades(body.origen_ciudad, body.destino_ciudad, asientos);
+  if (calculo.error) return badRequest(res, calculo.error);
+  ok(res, calculo);
 }
 
-module.exports = { publicar, buscar, detalle, porConductor, cancelar, calcularVista };
+// Vista previa de la comisión ANTES de confirmar la solicitud de reserva (Reglas de la Ruta 2.3:
+// el monto de la comisión tiene que verse desde el momento de reservar, no solo en la pantalla de
+// pago). Usa el mismo cálculo que se aplica de verdad al crear la reserva (pricing.calcularDesgloseReserva),
+// así el número que ve el pasajero antes de solicitar es siempre el que después le va a cobrar.
+async function desgloseReservaVista(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  const viaje = await db.get("SELECT * FROM viajes WHERE id = ?", [params.id]);
+  if (!viaje) return notFound(res, "Viaje no encontrado");
+  const asientos = Math.max(1, Number(body.asientos_reservados) || 1);
+  const desglose = await pricing.calcularDesgloseReserva(viaje.precio_por_asiento, asientos);
+  ok(res, desglose);
+}
+
+module.exports = { publicar, buscar, detalle, porConductor, cancelar, calcularVista, desgloseReservaVista };

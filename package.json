@@ -1,8 +1,8 @@
 {
-  "name": "viaje-compartido",
+  "name": "ruta-compartida",
   "version": "1.0.0",
   "private": true,
-  "description": "Viaje Compartido — plataforma de viajes compartidos para Argentina (desplegable en Vercel + Postgres)",
+  "description": "Ruta Compartida — plataforma de viajes compartidos para Argentina (desplegable en Vercel + Postgres)",
   "dependencies": {
     "pg": "^8.12.0"
   }

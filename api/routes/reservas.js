@@ -5,9 +5,45 @@ const db = require("../db");
 const pricing = require("../pricing");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
+// Campos "completos" del conductor (foto, bio, auto, teléfono) que solo deben verse una vez
+// que el conductor ACEPTÓ la reserva — antes de eso el pasajero solo vio nombre y valoración
+// en el detalle del viaje (ver conConductor() en routes/viajes.js). Esto evita que alguien
+// contacte al conductor por fuera de la app antes de confirmar (y pagar la comisión).
+const CAMPOS_CONDUCTOR_COMPLETOS = [
+  "conductor_foto",
+  "conductor_bio",
+  "conductor_telefono",
+  "conductor_vehiculo_marca",
+  "conductor_vehiculo_modelo",
+  "conductor_vehiculo_color",
+  "conductor_rating_promedio",
+  "conductor_rating_count",
+];
+
 function filaReserva(row) {
   if (!row) return row;
-  return boolFields(row, ["pagado"]);
+  const copy = boolFields(row, ["pagado"]);
+  // "reembolso_aplica" queda null hasta que la reserva se cancela — a diferencia de "pagado",
+  // acá null significa "todavía no aplica" y no debe convertirse en `false`.
+  if (copy.reembolso_aplica !== null && copy.reembolso_aplica !== undefined) {
+    copy.reembolso_aplica = !!copy.reembolso_aplica;
+  }
+  const confirmada = ["aceptada", "completada"].includes(copy.estado);
+  if (!confirmada) {
+    for (const campo of CAMPOS_CONDUCTOR_COMPLETOS) delete copy[campo];
+  }
+  return copy;
+}
+
+// Política de cancelación (24 hs binarias, ver Reglas de la Ruta 2.5 y api/routes/reservas.js):
+// si al momento de cancelar faltan 24 hs o más para la salida del viaje, corresponde reembolso
+// total (o directamente no se cobra nada, si todavía no había pagado la comisión). Si faltan
+// menos de 24 hs, no corresponde reembolso de lo ya pagado.
+function calcularReembolsoAplica(viaje) {
+  const salida = new Date(`${viaje.fecha_salida}T${viaje.hora_salida}:00`);
+  if (Number.isNaN(salida.getTime())) return true; // si no se puede determinar la fecha, no penalizamos al pasajero
+  const msHastaSalida = salida.getTime() - Date.now();
+  return msHastaSalida >= 24 * 60 * 60 * 1000;
 }
 
 async function crear(req, res) {
@@ -52,10 +88,17 @@ async function crear(req, res) {
   });
 }
 
+const SELECT_CONDUCTOR_RESERVA = `
+  u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias,
+  u.foto_perfil AS conductor_foto, u.bio AS conductor_bio, u.telefono AS conductor_telefono,
+  u.vehiculo_marca AS conductor_vehiculo_marca, u.vehiculo_modelo AS conductor_vehiculo_modelo,
+  u.vehiculo_color AS conductor_vehiculo_color, u.rating_promedio AS conductor_rating_promedio,
+  u.rating_count AS conductor_rating_count`;
+
 async function obtener(req, res, params) {
   const row = await db.get(
     `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id, v.precio_por_asiento,
-            u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+            ${SELECT_CONDUCTOR_RESERVA}
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id WHERE r.id = ?`,
     [params.id]
   );
@@ -66,7 +109,7 @@ async function obtener(req, res, params) {
 async function porPasajero(req, res, params) {
   const rows = await db.all(
     `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id,
-            u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+            ${SELECT_CONDUCTOR_RESERVA}
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id
      WHERE r.pasajero_id = ? ORDER BY r.created_at DESC`,
     [params.pasajeroId]
@@ -97,6 +140,22 @@ async function cambiarEstado(req, res, params) {
   const permitidos = ["aceptada", "rechazada", "cancelada", "completada"];
   if (!permitidos.includes(body.estado)) return badRequest(res, "Estado inválido");
 
+  // El viaje se marca "completado" recién cuando ya se aceptó Y se pagó la comisión — antes de
+  // eso no hay nada que confirmar. Marcarlo como completado habilita las calificaciones y suma a
+  // las estadísticas del negocio (ver /api/admin/estadisticas).
+  if (body.estado === "completada") {
+    if (reserva.estado !== "aceptada") {
+      return badRequest(res, "Solo se puede marcar como completado un viaje con una reserva aceptada.");
+    }
+    if (!reserva.pagado) {
+      return badRequest(res, "Todavía falta pagar la comisión de la plataforma para poder marcar el viaje como completado.");
+    }
+  }
+
+  if (body.estado === "cancelada" && ["cancelada", "rechazada", "completada"].includes(reserva.estado)) {
+    return badRequest(res, "Esta reserva ya no se puede cancelar.");
+  }
+
   if (body.estado === "aceptada" && reserva.estado === "pendiente") {
     const viaje = await db.get("SELECT * FROM viajes WHERE id = ?", [reserva.viaje_id]);
     if (viaje.asientos_disponibles < reserva.asientos_reservados) {
@@ -115,9 +174,34 @@ async function cambiarEstado(req, res, params) {
     ]);
   }
 
-  await db.run("UPDATE reservas SET estado = ?, actualizado_at = ? WHERE id = ?", [body.estado, nowIso(), params.id]);
+  // Política de cancelación (Reglas de la Ruta 2.5): 24 hs o más antes de la salida -> reembolso
+  // total (o directamente no se cobra nada, si todavía no había pagado). Menos de 24 hs -> no
+  // corresponde reembolso de la comisión ya pagada. Esto se calcula UNA sola vez, en el momento
+  // de la cancelación, y queda guardado — nunca se recalcula después.
+  let mensaje;
+  if (body.estado === "cancelada") {
+    const viaje = await db.get("SELECT fecha_salida, hora_salida FROM viajes WHERE id = ?", [reserva.viaje_id]);
+    const reembolsoAplica = calcularReembolsoAplica(viaje);
+    await db.run("UPDATE reservas SET estado = ?, actualizado_at = ?, reembolso_aplica = ? WHERE id = ?", [
+      body.estado,
+      nowIso(),
+      reembolsoAplica ? 1 : 0,
+      params.id,
+    ]);
+    if (!reserva.pagado) {
+      mensaje = "Reserva cancelada. Como todavía no habías pagado la comisión, no se te cobra nada.";
+    } else if (reembolsoAplica) {
+      mensaje = "Reserva cancelada con 24 hs o más de anticipación: se te reembolsa el 100% de la comisión pagada.";
+    } else {
+      mensaje =
+        "Reserva cancelada con menos de 24 hs de anticipación: según la política de cancelación, no corresponde reembolso de la comisión ya pagada.";
+    }
+  } else {
+    await db.run("UPDATE reservas SET estado = ?, actualizado_at = ? WHERE id = ?", [body.estado, nowIso(), params.id]);
+  }
+
   const actualizado = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
-  ok(res, filaReserva(actualizado));
+  ok(res, { ...filaReserva(actualizado), mensaje });
 }
 
 async function pagar(req, res, params) {
@@ -134,7 +218,7 @@ async function pagar(req, res, params) {
   const actualizado = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
   ok(res, {
     reserva: filaReserva(actualizado),
-    mensaje: `Pago de la comisión de Viaje Compartido registrado ($${reserva.comision_plataforma}). Todavía le debés al conductor ` +
+    mensaje: `Pago de la comisión de Ruta Compartida registrado ($${reserva.comision_plataforma}). Todavía le debés al conductor ` +
       `$${reserva.monto_conductor} por el viaje en sí — transferíselos por transferencia o QR de Mercado Pago a su alias "${reserva.conductor_alias || "sin alias cargado"}" ` +
       `al momento de viajar.`,
   });

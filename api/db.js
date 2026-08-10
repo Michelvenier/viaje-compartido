@@ -9,6 +9,7 @@
 "use strict";
 
 const { Pool } = require("pg");
+const { DISTANCIAS_DEFAULT } = require("./corredor");
 
 let _pool = null;
 function getPool() {
@@ -90,6 +91,8 @@ async function initSchema() {
       doc_cedula TEXT,
       doc_seguro TEXT,
       doc_vtv_declarada INTEGER DEFAULT 0,
+      doc_vtv TEXT,
+      vtv_vencimiento TEXT,
       vehiculo_marca TEXT,
       vehiculo_modelo TEXT,
       vehiculo_color TEXT,
@@ -165,8 +168,13 @@ async function initSchema() {
     );
 
     -- Migración: si la tabla usuarios ya existía de antes (creada con un esquema viejo),
-    -- esto agrega la columna nueva sin borrar nada de lo que ya había.
+    -- esto agrega las columnas nuevas sin borrar nada de lo que ya había.
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS alias_cobro TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_vtv TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS vtv_vencimiento TEXT;
+    -- "reembolso_aplica" queda nulo hasta que la reserva se cancela; ahí se guarda si correspondía
+    -- reembolso (según la regla de las 24 hs, o 1 siempre si canceló el conductor) o no.
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS reembolso_aplica INTEGER;
   `);
 
   const defaults = [
@@ -176,6 +184,14 @@ async function initSchema() {
     ["comision_minima", "2000"],
     ["consumo_litros_100km", "10"],
     ["tolerancia_ajuste_pct", "15"],
+    // Piso mínimo de precio por asiento: nunca menos de $12.000 (tarifa mínima para trayectos
+    // cortos, hasta ~230 km) ni menos de $52 por km recorrido — 500 km da exactamente $26.000.
+    // Se aplica el mayor entre el piso y el cálculo por costo real (nafta + peajes / asientos).
+    ["precio_minimo_por_km", "52"],
+    ["precio_minimo_base", "12000"],
+    // Distancia y peaje estimados de La Plata a cada ciudad del corredor (ver api/corredor.js).
+    // Guardado como JSON en un solo registro de config; editable desde el panel de admin.
+    ["distancias_corredor", JSON.stringify(DISTANCIAS_DEFAULT)],
   ];
   for (const [clave, valor] of defaults) {
     await run(`INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO NOTHING`, [clave, valor]);

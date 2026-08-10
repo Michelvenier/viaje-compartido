@@ -27,6 +27,7 @@ router.get("/api/viajes/:id", viajes.detalle);
 router.delete("/api/viajes/:id", viajes.cancelar);
 router.get("/api/viajes/conductor/:conductorId", viajes.porConductor);
 router.post("/api/pricing/calcular", viajes.calcularVista);
+router.post("/api/viajes/:id/desglose-reserva", viajes.desgloseReservaVista);
 
 router.post("/api/reservas", reservas.crear);
 router.get("/api/reservas/:id", reservas.obtener);
@@ -43,7 +44,9 @@ router.get("/api/admin/usuarios", admin.listarUsuarios);
 router.patch("/api/admin/validar/:id", admin.validar);
 router.get("/api/admin/config", admin.verConfig);
 router.patch("/api/admin/config", admin.actualizarConfig);
+router.get("/api/admin/estadisticas", admin.estadisticas);
 router.get("/api/admin/seed", admin.seed);
+router.post("/api/admin/configurar-admin", admin.configurarAdmin);
 
 let schemaReady = null;
 function ensureSchema() {

@@ -86,6 +86,28 @@ function usuarioPublico(row) {
   return boolFields(rest, ["pref_fuma", "pref_mascotas", "doc_vtv_declarada"]);
 }
 
+// --- Contraseñas -----------------------------------------------------------
+// Hash con scrypt (nativo de Node, sin dependencias nuevas). Formato guardado: "salt:hashHex".
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== "string" || !stored.includes(":")) return false;
+  const [salt, hashHex] = stored.split(":");
+  if (!salt || !hashHex) return false;
+  try {
+    const hashBuffer = Buffer.from(hashHex, "hex");
+    const testBuffer = crypto.scryptSync(String(password), salt, 64);
+    if (hashBuffer.length !== testBuffer.length) return false;
+    return crypto.timingSafeEqual(hashBuffer, testBuffer);
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   newId,
   nowIso,
@@ -98,4 +120,6 @@ module.exports = {
   readBody,
   boolFields,
   usuarioPublico,
+  hashPassword,
+  verifyPassword,
 };

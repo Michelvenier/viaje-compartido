@@ -1,6 +1,6 @@
-// state.js — sesión del usuario (demo, guardada en localStorage) + helpers de UI (toasts).
+// state.js — sesión del usuario (guardada en localStorage) + helpers de UI (toasts).
 const Session = (() => {
-  const KEY = "viajecompartido_usuario";
+  const KEY = "rutacompartida_usuario";
 
   function get() {
     try {
@@ -49,4 +49,19 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// Mensaje de confirmación mostrado ANTES de cancelar una reserva, calculado en el cliente con la
+// misma regla de las 24 hs que aplica el servidor (api/routes/reservas.js calcularReembolsoAplica)
+// — así el pasajero sabe, antes de confirmar, si va a perder la comisión o no. El servidor vuelve
+// a calcularlo de forma autoritativa al procesar la cancelación; esto es solo para el aviso previo.
+function mensajeConfirmacionCancelacion(fechaSalida, horaSalida, pagado) {
+  if (!pagado) {
+    return "¿Confirmás que querés cancelar esta reserva? Como todavía no pagaste la comisión, no se te cobra nada.";
+  }
+  const salida = new Date(`${fechaSalida}T${horaSalida}:00`);
+  const reembolsoAplica = Number.isNaN(salida.getTime()) || salida.getTime() - Date.now() >= 24 * 60 * 60 * 1000;
+  return reembolsoAplica
+    ? "¿Confirmás que querés cancelar esta reserva? Como faltan 24 hs o más para la salida, se te reembolsa el 100% de la comisión pagada."
+    : "¿Confirmás que querés cancelar esta reserva? Como faltan menos de 24 hs para la salida, NO corresponde reembolso de la comisión ya pagada.";
 }

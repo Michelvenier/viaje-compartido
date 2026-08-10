@@ -112,7 +112,7 @@ async function runSeed() {
     return { mensaje: "La base ya tenía datos, no se volvió a sembrar.", usuarios: Number(yaHay.c) };
   }
 
-  const admin = await crearUsuario({ rol: "admin", nombre: "Admin", apellido: "Viaje Compartido", email: "admin@viajecompartido.com.ar" });
+  const admin = await crearUsuario({ rol: "admin", nombre: "Admin", apellido: "Ruta Compartida", email: "admin@rutacompartida.com.ar" });
 
   const conductor1 = await crearUsuario({
     rol: "conductor", nombre: "Martín", apellido: "Gómez", edad: 34, email: "martin.conductor@example.com",

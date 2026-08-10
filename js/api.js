@@ -1,4 +1,4 @@
-// api.js — cliente mínimo para hablar con la API de Viaje Compartido.
+// api.js — cliente mínimo para hablar con la API de Ruta Compartida.
 const Api = (() => {
   async function req(method, path, body) {
     const opts = { method, headers: {} };

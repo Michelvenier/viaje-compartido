@@ -2,7 +2,19 @@
 "use strict";
 
 const db = require("../db");
-const { newId, nowIso, ok, created, badRequest, notFound, readBody, usuarioPublico } = require("../helpers");
+const {
+  newId,
+  nowIso,
+  ok,
+  created,
+  badRequest,
+  notFound,
+  forbidden,
+  readBody,
+  usuarioPublico,
+  hashPassword,
+  verifyPassword,
+} = require("../helpers");
 
 function registrar(rol) {
   return async (req, res) => {
@@ -25,13 +37,22 @@ function registrar(rol) {
     }
     if (!body.telefono) return badRequest(res, "El celular es obligatorio para validar por WhatsApp.");
     if (!body.email) return badRequest(res, "El correo electrónico es obligatorio.");
+    if (!body.password || String(body.password).length < 8) {
+      return badRequest(res, "Elegí una contraseña de al menos 8 caracteres.");
+    }
 
     if (rol === "conductor") {
       if (!body.doc_licencia) return badRequest(res, "Falta la foto de la licencia de conducir.");
       if (!body.doc_cedula) return badRequest(res, "Falta la foto de la cédula verde/azul.");
       if (!body.doc_seguro) return badRequest(res, "Falta la foto/captura de la póliza de seguro vigente.");
-      if (!body.doc_vtv_declarada) {
-        return badRequest(res, "Debés declarar bajo declaración jurada que tu VTV está vigente.");
+      if (!body.doc_vtv) {
+        return badRequest(res, "Falta la foto de la oblea o constancia de VTV vigente.");
+      }
+      if (!body.vtv_vencimiento) {
+        return badRequest(res, "Indicá la fecha de vencimiento de tu VTV.");
+      }
+      if (new Date(body.vtv_vencimiento) < new Date(new Date().toDateString())) {
+        return badRequest(res, "La fecha de vencimiento de tu VTV ya pasó. Actualizala antes de registrarte como conductor.");
       }
       if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
         return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
@@ -50,9 +71,10 @@ function registrar(rol) {
         id, rol, nombre, apellido, edad, dni, telefono, email, domicilio, foto_perfil, bio,
         pref_fuma, pref_mascotas, pref_musica, pref_charla, pref_equipaje, estado_validacion,
         doc_dni_frente, doc_dni_dorso, doc_selfie, doc_licencia, doc_cedula, doc_seguro, doc_vtv_declarada,
+        doc_vtv, vtv_vencimiento,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
-        alias_cobro, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        alias_cobro, password, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -77,7 +99,9 @@ function registrar(rol) {
         body.doc_licencia || null,
         body.doc_cedula || null,
         body.doc_seguro || null,
-        body.doc_vtv_declarada ? 1 : 0,
+        body.doc_vtv ? 1 : 0,
+        body.doc_vtv || null,
+        body.vtv_vencimiento || null,
         body.vehiculo_marca || null,
         body.vehiculo_modelo || null,
         body.vehiculo_color || null,
@@ -85,6 +109,7 @@ function registrar(rol) {
         body.vehiculo_foto || null,
         body.vehiculo_asientos || 3,
         body.alias_cobro || null,
+        hashPassword(body.password),
         nowIso(),
       ]
     );
@@ -93,7 +118,7 @@ function registrar(rol) {
     created(res, {
       usuario: usuarioPublico(row),
       mensaje:
-        "¡Listo! Revisamos cada perfil manualmente para tu seguridad. Te avisamos por WhatsApp en menos de 24 hs cuando estés habilitado.",
+        "¡Listo! Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs.",
     });
   };
 }
@@ -125,15 +150,23 @@ async function actualizar(req, res, params) {
     "telefono",
     "vehiculo_asientos",
     "alias_cobro",
+    "password",
   ];
   const sets = [];
   const values = [];
-  campos.forEach((c) => {
-    if (c in body) {
+  for (const c of campos) {
+    if (!(c in body)) continue;
+    if (c === "password") {
+      if (!body.password || String(body.password).length < 8) {
+        return badRequest(res, "La nueva contraseña debe tener al menos 8 caracteres.");
+      }
       sets.push(`${c} = ?`);
-      values.push(typeof body[c] === "boolean" ? (body[c] ? 1 : 0) : body[c]);
+      values.push(hashPassword(body.password));
+      continue;
     }
-  });
+    sets.push(`${c} = ?`);
+    values.push(typeof body[c] === "boolean" ? (body[c] ? 1 : 0) : body[c]);
+  }
   if (sets.length === 0) return badRequest(res, "Nada para actualizar");
   values.push(params.id);
   await db.run(`UPDATE usuarios SET ${sets.join(", ")} WHERE id = ?`, values);
@@ -149,8 +182,31 @@ async function login(req, res) {
     return badRequest(res, "JSON inválido");
   }
   if (!body.email) return badRequest(res, "Ingresá tu email");
+  if (!body.password) return badRequest(res, "Ingresá tu contraseña");
+
   const row = await db.get("SELECT * FROM usuarios WHERE email = ?", [body.email]);
   if (!row) return notFound(res, "No encontramos una cuenta con ese email");
+
+  if (!row.password) {
+    // Cuenta creada antes de exigir contraseña (dato viejo). La cuenta admin NUNCA se
+    // "reclama" así — solo se configura vía /api/admin/configurar-admin con el secret del
+    // servidor — para que nadie pueda convertirse en admin sabiendo solo el email.
+    if (row.rol === "admin") {
+      return forbidden(
+        res,
+        "La cuenta de administrador todavía no tiene una contraseña configurada. Pedile al equipo técnico que la configure."
+      );
+    }
+    if (String(body.password).length < 8) {
+      return badRequest(res, "Como es tu primer ingreso con este email, elegí una contraseña de al menos 8 caracteres.");
+    }
+    await db.run("UPDATE usuarios SET password = ? WHERE id = ?", [hashPassword(body.password), row.id]);
+    return ok(res, usuarioPublico(row));
+  }
+
+  if (!verifyPassword(body.password, row.password)) {
+    return badRequest(res, "Contraseña incorrecta.");
+  }
   ok(res, usuarioPublico(row));
 }
 

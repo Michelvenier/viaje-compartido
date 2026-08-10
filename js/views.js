@@ -23,7 +23,6 @@ function selectCiudades(name, selected, placeholder, required) {
 // ---------------------------------------------------------------------------
 function viewHome(app) {
   app.innerHTML = `
-    <div class="demo-banner">🚧 Prototipo funcional de demostración — los pagos y validaciones están simulados. Los datos se guardan en la base local del servidor.</div>
     <section class="hero">
       <h1>Compartí el auto. <br>Compartí los gastos.</h1>
       <p class="sub">Conectamos conductores y pasajeros que ya hacen el mismo camino entre La Plata y las localidades de la Ruta 5 y la Ruta 226.</p>
@@ -44,8 +43,8 @@ function viewHome(app) {
       </form>
     </section>
     <div class="disclaimer-strip">
-      ⚖️ Viaje Compartido es una plataforma de intermediación entre particulares. <strong>No prestamos el servicio de transporte</strong> —
-      solo conectamos a quienes ya hacen el viaje. <a href="#/reglas-de-la-ruta" style="color:#dff5f2">Conocé las Reglas de la Ruta →</a>
+      ⚖️ Ruta Compartida es una plataforma de intermediación entre particulares. <strong>No prestamos el servicio de transporte</strong> —
+      solo conectamos a quienes ya hacen el viaje. <a href="#/terminos" style="color:#fff;text-decoration:underline">Conocé los Términos y Condiciones →</a>
     </div>
 
     <div class="container">
@@ -67,7 +66,7 @@ function viewHome(app) {
         <div class="how-step card">
           <div class="num">3</div>
           <h3>Viajá y calificá</h3>
-          <p>Pagás en la app solo la comisión de Viaje Compartido; el resto se lo transferís directo al conductor por transferencia o QR. Al llegar, ambos se califican.</p>
+          <p>Pagás en la app solo la comisión de Ruta Compartida; el resto se lo transferís directo al conductor por transferencia o QR. Al llegar, ambos se califican.</p>
         </div>
       </div>
 
@@ -179,23 +178,27 @@ async function viewDetalle(app, params) {
       html: `<p>Distancia estimada: <strong>${viaje.distancia_km} km</strong>. Nafta usada como referencia: <strong>${fmtMoney(viaje.precio_nafta_usado)}/litro</strong>.
       Costo de combustible: <strong>${fmtMoney(viaje.costo_combustible)}</strong> + peajes <strong>${fmtMoney(viaje.peajes_estimados)}</strong> =
       Techo Operativo de <strong>${fmtMoney(viaje.cto_total)}</strong>, dividido entre ${viaje.divisor_precio} (conductor + asientos ofrecidos).
-      El conductor puede ajustar hasta un 15% sobre ese valor, nunca más. <a href="#/reglas-de-la-ruta">Ver el detalle completo →</a></p>`,
+      Este precio lo calcula el sistema automáticamente según la ciudad de destino — el conductor no puede modificarlo.
+      <a href="#/reglas-de-la-ruta">Ver el detalle completo →</a></p>`,
     },
     {
       titulo: "¿Qué pasa si cancelo mi reserva?",
-      html: `<p>Con más de 24 hs de anticipación recuperás el 100%. Dentro de las 24 hs previas, el 50% (salvo dentro de los 30 minutos de
-      haber reservado, ahí es 100%). Si cancela el conductor, siempre te devolvemos el 100%.</p>`,
+      html: `<p>La regla es simple: cancelando con <strong>24 hs o más</strong> de anticipación a la salida no se te cobra nada (o se te
+      reembolsa el 100% si ya habías pagado la comisión). Cancelando con <strong>menos de 24 hs</strong>, no corresponde reembolso de la
+      comisión ya pagada. Si todavía no pagaste, cancelar nunca tiene costo. Si cancela el conductor, siempre te devolvemos el 100%.
+      <a href="#/reglas-de-la-ruta">Ver el detalle completo →</a></p>`,
     },
     {
       titulo: "Validación de este conductor",
-      html: `<p>Verificamos manualmente su DNI, licencia de conducir, cédula del vehículo, seguro vigente y declaración jurada de VTV antes
-      de habilitarlo a publicar viajes. Esto reduce riesgos, pero no sustituye tu propio criterio: coordiná el encuentro en un lugar público
-      y compartí tu viaje con alguien de confianza.</p>`,
+      html: `<p>Revisamos manualmente su DNI, licencia de conducir, cédula del vehículo, seguro y constancia de VTV vigente (con su fecha
+      de vencimiento) antes de habilitarlo a publicar viajes. Esto es una verificación documental que busca reducir riesgos, no una
+      garantía de que no vaya a ocurrir un problema ni una certificación sobre su conducta futura. Coordiná el encuentro en un lugar
+      público y compartí tu viaje con alguien de confianza. <a href="#/terminos">Ver los Términos y Condiciones completos →</a></p>`,
     },
     {
-      titulo: "Lo que NO cubre Viaje Compartido",
+      titulo: "Lo que NO cubre Ruta Compartida",
       html: `<p>No somos responsables por accidentes, siniestros, conductas entre usuarios, demoras, o el estado mecánico real del vehículo.
-      Esa responsabilidad es del conductor y su seguro. <a href="#/reglas-de-la-ruta">Leer el encuadre legal completo →</a></p>`,
+      Esa responsabilidad es del conductor y de quien corresponda según las circunstancias. <a href="#/terminos">Leer el encuadre legal completo →</a></p>`,
     },
   ];
 
@@ -220,8 +223,7 @@ async function viewDetalle(app, params) {
           <div>
             <strong>${escapeHtml(c.nombre || "")} ${escapeHtml((c.apellido || "")[0] || "")}.</strong>
             <div class="muted">${c.rating_count ? `★ ${c.rating_promedio} (${c.rating_count} viajes)` : "Todavía sin calificaciones"}</div>
-            <div class="muted">${escapeHtml(c.vehiculo_marca || "")} ${escapeHtml(c.vehiculo_modelo || "")} ${c.vehiculo_color ? "· " + escapeHtml(c.vehiculo_color) : ""}</div>
-            ${c.bio ? `<p style="margin-top:6px">"${escapeHtml(c.bio)}"</p>` : ""}
+            <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto, la foto y el teléfono del conductor una vez que acepte tu reserva.</div>
           </div>
         </div>
       </div>
@@ -265,9 +267,36 @@ async function viewDetalle(app, params) {
             </select>
           </div>
         </div>
+        <div id="comision-preview" class="info-box" style="margin-bottom:14px">Calculando la comisión…</div>
+        <div class="info-box" style="margin-bottom:14px">
+          📌 <strong>Política de cancelación:</strong> con 24 hs o más de anticipación a la salida, cancelás sin costo (o con reembolso
+          total si ya pagaste). Con menos de 24 hs, no hay reembolso de la comisión ya pagada.
+          <a href="#/reglas-de-la-ruta">Ver más</a>
+        </div>
         <button class="btn btn-primary btn-block" type="submit">Solicitar reserva</button>
         <p class="muted" style="margin-top:8px">El conductor tiene que aceptar tu solicitud antes de que se habilite el pago.</p>
       </form>`;
+
+    const selectAsientos = app.querySelector('[name="asientos_reservados"]');
+    async function actualizarComisionPreview() {
+      const asientos = Number(selectAsientos.value) || 1;
+      const cont = app.querySelector("#comision-preview");
+      try {
+        const desglose = await Api.post(`/api/viajes/${viaje.id}/desglose-reserva`, { asientos_reservados: asientos });
+        cont.innerHTML = `
+          <div class="price-breakdown" style="border-top:none;padding-top:0">
+            <div class="row"><span>Costo compartido del viaje (${asientos} asiento(s))</span><span>${fmtMoney(desglose.montoTotal)}</span></div>
+            <div class="row total"><span>Comisión de Ruta Compartida a pagar (${desglose.comisionPct}%, mín. ${fmtMoney(desglose.comisionMinima)})</span><span>${fmtMoney(desglose.comisionPlataforma)}</span></div>
+          </div>
+          <p class="muted" style="margin:6px 0 0">El resto (${fmtMoney(desglose.montoConductor)}) se lo transferís directamente al
+          conductor al momento de viajar — la plataforma no lo cobra.</p>`;
+      } catch (err) {
+        cont.innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
+      }
+    }
+    selectAsientos.addEventListener("change", actualizarComisionPreview);
+    actualizarComisionPreview();
+
     app.querySelector("#form-reserva").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -303,32 +332,40 @@ function viewPublicar(app) {
   if (user.estado_validacion !== "aprobado") {
     app.innerHTML = `<div class="container-narrow"><div class="card">
       <h2>Tu perfil está en revisión</h2>
-      <div class="info-box">Revisamos cada perfil manualmente para tu seguridad y la de la comunidad. Te avisamos por WhatsApp en menos
-      de 24 hs cuando estés habilitado para publicar viajes.</div>
+      <div class="info-box">Revisamos manualmente la documentación de cada perfil antes de habilitarlo, como parte de nuestro proceso de
+      validación. Te avisamos por WhatsApp en menos de 24 hs cuando estés habilitado para publicar viajes.</div>
     </div></div>`;
     return;
   }
+
+  const otrasCiudades = CIUDADES_CORREDOR.filter((c) => c !== "La Plata");
+  const opcionesOtraCiudad = otrasCiudades.map((c) => `<option value="${c}">${c}</option>`).join("");
 
   app.innerHTML = `
     <div class="container-narrow">
       <div class="card">
         <h2>Publicá tu viaje</h2>
-        <p class="muted">Completá los datos del trayecto. Calculamos el precio sugerido según nafta y peajes — vos podés ajustarlo hasta un 15%.</p>
+        <p class="muted">La distancia, los peajes y el precio se calculan automáticamente según las ciudades — nadie los puede editar,
+        ni siquiera vos, para que el precio nunca se aparte del costo real del trayecto.</p>
         <div id="publicar-error"></div>
         <form id="form-publicar">
           <div class="field">
             <label>Punto de partida exacto</label>
             <input type="text" name="origen_direccion" placeholder="Ej: Terminal de Ómnibus, La Plata" required>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Ciudad de origen</label>
-              ${selectCiudades("origen_ciudad", "La Plata", "", true)}
+          <div class="field">
+            <label>Dirección del viaje</label>
+            <div class="field-row">
+              <label class="checkbox-row" style="flex:1"><input type="radio" name="direccion" value="desde" checked> Salgo de La Plata</label>
+              <label class="checkbox-row" style="flex:1"><input type="radio" name="direccion" value="hacia"> Vuelvo hacia La Plata</label>
             </div>
-            <div class="field">
-              <label>Ciudad de destino</label>
-              ${selectCiudades("destino_ciudad", "", "Elegí destino", true)}
-            </div>
+          </div>
+          <div class="field">
+            <label>Otra ciudad del corredor</label>
+            <select name="otra_ciudad" required>
+              <option value="" selected>Elegí una ciudad</option>
+              ${opcionesOtraCiudad}
+            </select>
           </div>
           <div class="field">
             <label>Ciudades intermedias</label>
@@ -349,31 +386,15 @@ function viewPublicar(app) {
               <input type="time" name="hora_llegada_estimada">
             </div>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Distancia estimada (km)</label>
-              <input type="number" name="distancia_km" min="1" step="1" required>
-            </div>
-            <div class="field">
-              <label>Peajes estimados ($)</label>
-              <input type="number" name="peajes_estimados" min="0" step="1" value="0">
-            </div>
-            <div class="field">
-              <label>Asientos a ofrecer</label>
-              <select name="asientos_totales">
-                <option value="1">1</option><option value="2">2</option><option value="3" selected>3 (recomendado)</option>
-                <option value="4">4 (completa el auto)</option>
-              </select>
-            </div>
-          </div>
-
-          <div id="precio-preview" class="info-box" style="margin-bottom:16px">Completá distancia y peajes para ver el precio sugerido.</div>
-
           <div class="field">
-            <label>Precio final por asiento</label>
-            <input type="number" name="precio_por_asiento" min="0" step="1" placeholder="Se completa automáticamente">
-            <small class="hint" id="precio-hint">Podés ajustarlo hasta un 15% sobre el sugerido, sin superar el Techo Operativo del viaje.</small>
+            <label>Asientos a ofrecer</label>
+            <select name="asientos_totales">
+              <option value="1">1</option><option value="2">2</option><option value="3" selected>3 (recomendado)</option>
+              <option value="4">4 (completa el auto)</option>
+            </select>
           </div>
+
+          <div id="precio-preview" class="info-box" style="margin-bottom:16px">Elegí la otra ciudad para ver el precio calculado.</div>
 
           <div class="field">
             <label>Atributos de convivencia y carga</label>
@@ -391,7 +412,7 @@ function viewPublicar(app) {
               ${renderChips("pref_musica", [{ value: "si", label: "🎵 Sí" }, { value: "no", label: "🔇 No" }, { value: "indistinto", label: "🤷 Indistinto" }], "indistinto")}
             </div>
           </div>
-          <button class="btn btn-primary btn-block" type="submit">Publicar viaje</button>
+          <button class="btn btn-primary btn-block" type="submit" id="btn-publicar" disabled>Publicá tu viaje</button>
         </form>
       </div>
     </div>
@@ -399,51 +420,54 @@ function viewPublicar(app) {
   wireChips(app);
 
   const form = app.querySelector("#form-publicar");
-  let ultimoCalculo = null;
+  const btnPublicar = app.querySelector("#btn-publicar");
+
+  function ciudadesElegidas() {
+    const direccion = form.querySelector('[name="direccion"]:checked')?.value || "desde";
+    const otraCiudad = form.querySelector('[name="otra_ciudad"]').value;
+    if (!otraCiudad) return null;
+    return direccion === "desde"
+      ? { origen_ciudad: "La Plata", destino_ciudad: otraCiudad }
+      : { origen_ciudad: otraCiudad, destino_ciudad: "La Plata" };
+  }
 
   async function actualizarPreview() {
+    const ciudades = ciudadesElegidas();
+    btnPublicar.disabled = true;
+    if (!ciudades) return;
     const fd = new FormData(form);
-    const distancia = Number(fd.get("distancia_km"));
-    if (!distancia) return;
     try {
       const calc = await Api.post("/api/pricing/calcular", {
-        distancia_km: distancia,
-        peajes_estimados: Number(fd.get("peajes_estimados")) || 0,
+        ...ciudades,
         asientos_totales: Number(fd.get("asientos_totales")) || 3,
       });
-      ultimoCalculo = calc;
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
-          <div class="row"><span>Litros estimados (10L/100km)</span><span>${calc.litrosEstimados} L</span></div>
+          <div class="row"><span>Distancia (La Plata ↔ ${escapeHtml(calc.otraCiudad)})</span><span>${calc.distanciaKm} km</span></div>
+          <div class="row"><span>Peajes estimados</span><span>${fmtMoney(calc.peajesEstimados)}</span></div>
           <div class="row"><span>Costo combustible (nafta a ${fmtMoney(calc.precioNaftaUsado)}/L)</span><span>${fmtMoney(calc.costoCombustible)}</span></div>
           <div class="row"><span>Techo Operativo del viaje (C.T.O.)</span><span>${fmtMoney(calc.ctoTotal)}</span></div>
-          <div class="row total"><span>Precio sugerido por asiento</span><span>${fmtMoney(calc.precioSugerido)}</span></div>
+          <div class="row total"><span>Precio final por asiento</span><span>${fmtMoney(calc.precioSugerido)}</span></div>
         </div>
-        <p class="muted" style="margin:6px 0 0">Rango permitido: ${fmtMoney(calc.precioMinimoSugerido)} — ${fmtMoney(calc.precioMaximoPermitido)}</p>`;
-      const precioInput = form.querySelector('[name="precio_por_asiento"]');
-      if (!precioInput.value || Number(precioInput.dataset.auto) === 1) {
-        precioInput.value = calc.precioSugerido;
-        precioInput.dataset.auto = "1";
-      }
+        <p class="muted" style="margin:6px 0 0">Este precio sale automático del cálculo — no se puede modificar.</p>`;
+      btnPublicar.disabled = false;
     } catch (err) {
       app.querySelector("#precio-preview").innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
     }
   }
-  ["distancia_km", "peajes_estimados", "asientos_totales"].forEach((n) => {
-    form.querySelector(`[name="${n}"]`).addEventListener("input", actualizarPreview);
-  });
-  form.querySelector('[name="precio_por_asiento"]').addEventListener("input", (e) => {
-    e.target.dataset.auto = "0";
+  ["direccion", "otra_ciudad", "asientos_totales"].forEach((n) => {
+    form.querySelectorAll(`[name="${n}"]`).forEach((el) => el.addEventListener("change", actualizarPreview));
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const ciudades = ciudadesElegidas();
+    if (!ciudades) return;
     const fd = new FormData(form);
     const payload = {
       conductor_id: user.id,
       origen_direccion: fd.get("origen_direccion"),
-      origen_ciudad: fd.get("origen_ciudad"),
-      destino_ciudad: fd.get("destino_ciudad"),
+      ...ciudades,
       ciudades_intermedias: (fd.get("ciudades_intermedias") || "")
         .split(",")
         .map((s) => s.trim())
@@ -451,10 +475,7 @@ function viewPublicar(app) {
       fecha_salida: fd.get("fecha_salida"),
       hora_salida: fd.get("hora_salida"),
       hora_llegada_estimada: fd.get("hora_llegada_estimada") || null,
-      distancia_km: Number(fd.get("distancia_km")),
-      peajes_estimados: Number(fd.get("peajes_estimados")) || 0,
       asientos_totales: Number(fd.get("asientos_totales")) || 3,
-      precio_por_asiento: Number(fd.get("precio_por_asiento")) || undefined,
       permite_mascotas: !!fd.get("permite_mascotas"),
       permite_equipaje_grande: !!fd.get("permite_equipaje_grande"),
       permite_fumar: !!fd.get("permite_fumar"),
@@ -488,7 +509,7 @@ function viewRegistro(app, params) {
   }
 
   function ayudaWsp() {
-    return `<a href="https://wa.me/5490000000000" target="_blank" rel="noopener" class="muted" style="display:inline-flex;gap:6px;align-items:center;margin-top:10px">💬 ¿Dudas con el registro? Escribinos</a>`;
+    return `<a href="https://wa.me/5492396629101" target="_blank" rel="noopener" class="muted" style="display:inline-flex;gap:6px;align-items:center;margin-top:10px">💬 ¿Dudas con el registro? Escribinos</a>`;
   }
 
   function render() {
@@ -518,24 +539,36 @@ function viewRegistro(app, params) {
             <div class="field"><label>Email</label><input type="email" id="f-email" value="${escapeHtml(data.email || "")}"></div>
           </div>
           <div class="field"><label>Domicilio de residencia</label><input type="text" id="f-domicilio" value="${escapeHtml(data.domicilio || "")}"></div>
+          <div class="field-row">
+            <div class="field"><label>Contraseña</label><input type="password" id="f-password" autocomplete="new-password"></div>
+            <div class="field"><label>Repetir contraseña</label><input type="password" id="f-password2" autocomplete="new-password"></div>
+          </div>
+          <small class="hint">Mínimo 8 caracteres. La vas a usar para ingresar a tu cuenta.</small>
         `;
       } else if (step === 2) {
-        titulo = "Tu Seguridad";
-        subtitulo = "Paso 2: Lo legal";
+        titulo = "Validación de documentos";
+        subtitulo = "Paso 2: documentación";
         bodyHtml = `
           ${renderUploadField("doc_dni_frente", "DNI (frente)", "Botón de subir foto o sacar foto.")}
           ${renderUploadField("doc_dni_dorso", "DNI (dorso)")}
-          ${renderUploadField("doc_selfie", "Selfie de validación", "Sacate una foto sosteniendo tu DNI al lado de tu cara.")}
+          ${renderUploadField("doc_selfie", "Selfie de validación", "Sacate una foto sosteniendo tu DNI al lado de tu cara. La revisa manualmente nuestro equipo, no usamos reconocimiento facial automático.")}
           ${renderUploadField("doc_licencia", "Licencia de conducir")}
           ${renderUploadField("doc_cedula", "Cédula verde / azul")}
           ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de tu tarjeta de seguro (la que te pide la caminera en la Ruta 5).")}
-          <div class="checkbox-row">
-            <input type="checkbox" id="f-vtv" ${data.doc_vtv_declarada ? "checked" : ""}>
-            <label for="f-vtv">Declaro bajo declaración jurada que mi VTV está vigente.</label>
+          ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
+          <div class="field">
+            <label>Fecha de vencimiento de la VTV</label>
+            <input type="date" id="f-vtv-vencimiento" value="${escapeHtml(data.vtv_vencimiento || "")}">
           </div>
           <div class="checkbox-row">
             <input type="checkbox" id="f-reglas" ${data.acepta_reglas ? "checked" : ""}>
-            <label for="f-reglas">Leí y acepto las <a href="#/reglas-de-la-ruta" target="_blank">Reglas de la Ruta: cuidamos la comunidad</a>.</label>
+            <label for="f-reglas">Leí y acepto los <a href="#/terminos" target="_blank">Términos y Condiciones</a>, las
+              <a href="#/reglas-de-la-ruta" target="_blank">Reglas de la Ruta</a> y la
+              <a href="#/privacidad" target="_blank">Política de Privacidad</a> de Ruta Compartida.</label>
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="f-seguro-carpooling" ${data.declara_seguro_carpooling ? "checked" : ""}>
+            <label for="f-seguro-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
           </div>
         `;
       } else {
@@ -554,7 +587,7 @@ function viewRegistro(app, params) {
           <div class="field">
             <label>Alias de Mercado Pago (o CBU/CVU)</label>
             <input type="text" id="f-alias" placeholder="Ej: martin.conductor.mp" value="${escapeHtml(data.alias_cobro || "")}">
-            <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias — Viaje Compartido solo cobra su comisión.</small>
+            <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias — Ruta Compartida solo cobra su comisión.</small>
           </div>
           <div class="field"><label>Cantidad de asientos disponibles</label>
             <select id="f-asientos">
@@ -589,7 +622,7 @@ function viewRegistro(app, params) {
             <div class="field"><label>DNI</label><input type="text" id="f-dni" placeholder="Sin puntos" value="${escapeHtml(data.dni || "")}"></div>
           </div>
           ${renderUploadField("foto_perfil", "Foto de perfil", "Una foto donde se te vea bien la cara (ayuda a que el conductor te reconozca en el punto de encuentro).")}
-          ${renderUploadField("doc_dni_frente", "DNI (frente)", "Esto es innegociable por seguridad de la comunidad.")}
+          ${renderUploadField("doc_dni_frente", "DNI (frente)", "Es parte de la verificación de identidad que hacemos con cada usuario.")}
           ${renderUploadField("doc_dni_dorso", "DNI (dorso)")}
           ${renderUploadField("doc_selfie", "Selfie de validación", "Para asegurar que sos la persona del DNI.")}
         `;
@@ -602,9 +635,16 @@ function viewRegistro(app, params) {
             <small class="hint">Es vital para que el conductor te pueda avisar: "Che, estoy demorado 5 min en la rotonda".</small>
           </div>
           <div class="field"><label>Email</label><input type="email" id="f-email" value="${escapeHtml(data.email || "")}"></div>
+          <div class="field-row">
+            <div class="field"><label>Contraseña</label><input type="password" id="f-password" autocomplete="new-password"></div>
+            <div class="field"><label>Repetir contraseña</label><input type="password" id="f-password2" autocomplete="new-password"></div>
+          </div>
+          <small class="hint">Mínimo 8 caracteres. La vas a usar para ingresar a tu cuenta.</small>
           <div class="checkbox-row">
             <input type="checkbox" id="f-reglas" ${data.acepta_reglas ? "checked" : ""}>
-            <label for="f-reglas">Leí y acepto las <a href="#/reglas-de-la-ruta" target="_blank">Reglas de la Ruta: cuidamos la comunidad</a>.</label>
+            <label for="f-reglas">Leí y acepto los <a href="#/terminos" target="_blank">Términos y Condiciones</a>, las
+              <a href="#/reglas-de-la-ruta" target="_blank">Reglas de la Ruta</a> y la
+              <a href="#/privacidad" target="_blank">Política de Privacidad</a> de Ruta Compartida.</label>
           </div>
         `;
       } else {
@@ -638,7 +678,7 @@ function viewRegistro(app, params) {
               ${step === totalSteps ? "Enviar mi perfil" : "Siguiente"}
             </button>
           </div>
-          ${step === totalSteps ? `<p class="muted" style="margin-top:10px">Revisamos cada perfil manualmente para tu seguridad. Te avisamos por WhatsApp en menos de 24 hs cuando estés habilitado.</p>${ayudaWsp()}` : ayudaWsp()}
+          ${step === totalSteps ? `<p class="muted" style="margin-top:10px">Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs.</p>${ayudaWsp()}` : ayudaWsp()}
         </div>
       </div>`;
 
@@ -670,6 +710,7 @@ function viewRegistro(app, params) {
           nombre: q("#f-nombre")?.value, apellido: q("#f-apellido")?.value, edad: q("#f-edad")?.value, dni: q("#f-dni")?.value,
           foto_perfil: getUpload("foto_perfil") || data.foto_perfil, bio: q("#f-bio")?.value,
           telefono: q("#f-telefono")?.value, email: q("#f-email")?.value, domicilio: q("#f-domicilio")?.value,
+          password: q("#f-password")?.value, password2: q("#f-password2")?.value,
         });
       } else if (step === 2) {
         Object.assign(data, {
@@ -679,8 +720,10 @@ function viewRegistro(app, params) {
           doc_licencia: getUpload("doc_licencia") || data.doc_licencia,
           doc_cedula: getUpload("doc_cedula") || data.doc_cedula,
           doc_seguro: getUpload("doc_seguro") || data.doc_seguro,
-          doc_vtv_declarada: q("#f-vtv")?.checked,
+          doc_vtv: getUpload("doc_vtv") || data.doc_vtv,
+          vtv_vencimiento: q("#f-vtv-vencimiento")?.value,
           acepta_reglas: q("#f-reglas")?.checked,
+          declara_seguro_carpooling: q("#f-seguro-carpooling")?.checked,
         });
       } else {
         Object.assign(data, {
@@ -706,6 +749,7 @@ function viewRegistro(app, params) {
       } else if (step === 2) {
         Object.assign(data, {
           telefono: q("#f-telefono")?.value, email: q("#f-email")?.value,
+          password: q("#f-password")?.value, password2: q("#f-password2")?.value,
           acepta_reglas: q("#f-reglas")?.checked,
         });
       } else {
@@ -725,13 +769,20 @@ function viewRegistro(app, params) {
       if (!data.dni) errores.push("Ingresá tu DNI.");
       if (!data.telefono) errores.push("Ingresá tu celular.");
       if (!data.email) errores.push("Ingresá tu email.");
+      if (!data.password || data.password.length < 8) errores.push("La contraseña debe tener al menos 8 caracteres.");
+      if (data.password !== data.password2) errores.push("Las contraseñas no coinciden.");
     }
     if (rol === "conductor" && step === 2) {
       if (!data.doc_dni_frente || !data.doc_dni_dorso) errores.push("Subí ambas fotos del DNI.");
       if (!data.doc_selfie) errores.push("Subí la selfie de validación.");
       if (!data.doc_licencia || !data.doc_cedula || !data.doc_seguro) errores.push("Faltan documentos del vehículo.");
-      if (!data.doc_vtv_declarada) errores.push("Tenés que declarar tu VTV vigente.");
-      if (!data.acepta_reglas) errores.push("Tenés que aceptar las Reglas de la Ruta.");
+      if (!data.doc_vtv) errores.push("Subí la foto de la oblea o constancia de tu VTV vigente.");
+      if (!data.vtv_vencimiento) errores.push("Indicá la fecha de vencimiento de tu VTV.");
+      else if (new Date(data.vtv_vencimiento) < new Date(new Date().toDateString())) {
+        errores.push("La fecha de vencimiento de tu VTV ya pasó.");
+      }
+      if (!data.acepta_reglas) errores.push("Tenés que aceptar los Términos y Condiciones, las Reglas de la Ruta y la Política de Privacidad.");
+      if (!data.declara_seguro_carpooling) errores.push("Tenés que confirmar la verificación de tu seguro para carpooling.");
     }
     if (rol === "conductor" && step === 3) {
       if (!data.vehiculo_marca || !data.vehiculo_modelo || !data.vehiculo_patente) errores.push("Completá los datos del vehículo.");
@@ -746,7 +797,9 @@ function viewRegistro(app, params) {
     if (rol === "pasajero" && step === 2) {
       if (!data.telefono) errores.push("Ingresá tu celular.");
       if (!data.email) errores.push("Ingresá tu email.");
-      if (!data.acepta_reglas) errores.push("Tenés que aceptar las Reglas de la Ruta.");
+      if (!data.password || data.password.length < 8) errores.push("La contraseña debe tener al menos 8 caracteres.");
+      if (data.password !== data.password2) errores.push("Las contraseñas no coinciden.");
+      if (!data.acepta_reglas) errores.push("Tenés que aceptar los Términos y Condiciones, las Reglas de la Ruta y la Política de Privacidad.");
     }
     if (errores.length) {
       app.querySelector("#registro-error").innerHTML = `<div class="error-box">${errores.map(escapeHtml).join("<br>")}</div>`;
@@ -772,36 +825,28 @@ function viewRegistro(app, params) {
 }
 
 // ---------------------------------------------------------------------------
-// LOGIN (demo)
+// LOGIN
 // ---------------------------------------------------------------------------
 function viewLogin(app) {
   app.innerHTML = `
     <div class="container-narrow">
       <div class="card">
         <h2>Ingresar</h2>
-        <p class="muted">Esta es una demo: ingresá el email con el que te registraste.</p>
+        <p class="muted">Ingresá con tu email y tu contraseña.</p>
         <div id="login-error"></div>
         <form id="form-login">
-          <div class="field"><label>Email</label><input type="email" name="email" required></div>
+          <div class="field"><label>Email</label><input type="email" name="email" required autocomplete="username"></div>
+          <div class="field"><label>Contraseña</label><input type="password" name="password" required autocomplete="current-password"></div>
           <button class="btn btn-primary btn-block" type="submit">Ingresar</button>
         </form>
-        <div class="info-box" style="margin-top:16px">
-          <strong>Probar la demo rápido:</strong>
-          <div class="demo-login-row">
-            <button class="btn btn-outline btn-sm" data-demo="martin.conductor@example.com">🚗 Conductor demo</button>
-            <button class="btn btn-outline btn-sm" data-demo="laura.conductora@example.com">🚗 Conductora demo</button>
-            <button class="btn btn-outline btn-sm" data-demo="sofia.pasajera@example.com">🧳 Pasajera demo</button>
-            <button class="btn btn-outline btn-sm" data-demo="admin@viajecompartido.com.ar">🛠️ Admin demo</button>
-          </div>
-        </div>
         <p class="muted" style="margin-top:14px">¿No tenés cuenta? <a href="#/registro/pasajero">Creá tu perfil de pasajero</a> o
         <a href="#/registro/conductor">de conductor</a>.</p>
       </div>
     </div>`;
 
-  async function doLogin(email) {
+  async function doLogin(email, password) {
     try {
-      const usuario = await Api.post("/api/usuarios/login", { email });
+      const usuario = await Api.post("/api/usuarios/login", { email, password });
       Session.set(usuario);
       renderNavSession();
       toast(`¡Hola, ${usuario.nombre}!`, "success");
@@ -813,9 +858,9 @@ function viewLogin(app) {
 
   app.querySelector("#form-login").addEventListener("submit", (e) => {
     e.preventDefault();
-    doLogin(new FormData(e.target).get("email"));
+    const fd = new FormData(e.target);
+    doLogin(fd.get("email"), fd.get("password"));
   });
-  app.querySelectorAll("[data-demo]").forEach((btn) => btn.addEventListener("click", () => doLogin(btn.dataset.demo)));
 }
 
 // ---------------------------------------------------------------------------
@@ -931,8 +976,27 @@ async function viewMisViajes(app) {
             <span class="status-pill ${r.estado}">${r.estado}</span>
             <div class="amount" style="font-size:1.1rem">${fmtMoney(r.monto_total)}</div>
             ${r.pagado ? '<div class="muted" style="font-size:0.75rem">✅ Comisión pagada</div>' : ""}
+            ${
+              r.estado === "cancelada" && typeof r.reembolso_aplica === "boolean"
+                ? `<div class="muted" style="font-size:0.75rem">${r.reembolso_aplica ? "💸 Con reembolso" : "🚫 Sin reembolso (< 24 hs)"}</div>`
+                : ""
+            }
           </div>
         </div>
+        ${
+          ["aceptada", "completada"].includes(r.estado)
+            ? `<div class="info-box" style="margin-top:10px;display:flex;gap:10px;align-items:flex-start">
+                <div class="avatar">${iniciales(r.conductor_nombre, r.conductor_apellido)}</div>
+                <div>
+                  <strong>${escapeHtml(r.conductor_nombre || "")} ${escapeHtml(r.conductor_apellido || "")}</strong>
+                  ${r.conductor_rating_count ? `<div class="muted" style="font-size:0.8rem">★ ${r.conductor_rating_promedio} (${r.conductor_rating_count} viajes)</div>` : ""}
+                  <div class="muted" style="font-size:0.8rem">📞 ${escapeHtml(r.conductor_telefono || "sin cargar")}</div>
+                  <div class="muted" style="font-size:0.8rem">🚗 ${escapeHtml(r.conductor_vehiculo_marca || "")} ${escapeHtml(r.conductor_vehiculo_modelo || "")}${r.conductor_vehiculo_color ? " · " + escapeHtml(r.conductor_vehiculo_color) : ""}</div>
+                  ${r.conductor_bio ? `<p class="muted" style="font-size:0.8rem;margin-top:4px">"${escapeHtml(r.conductor_bio)}"</p>` : ""}
+                </div>
+              </div>`
+            : ""
+        }
         ${
           r.pagado
             ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} por transferencia o QR a su alias <strong>${r.conductor_alias ? escapeHtml(r.conductor_alias) : "(sin cargar)"}</strong> al momento de viajar.</div>`
@@ -940,7 +1004,8 @@ async function viewMisViajes(app) {
         }
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           ${r.estado === "aceptada" && !r.pagado ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar comisión ahora</a>` : ""}
-          ${["pendiente", "aceptada"].includes(r.estado) ? `<button class="btn btn-outline danger btn-sm" data-cancelar-reserva="${r.id}">Cancelar reserva</button>` : ""}
+          ${r.estado === "aceptada" && r.pagado ? `<button class="btn btn-teal btn-sm" data-completar-reserva="${r.id}">Marcar viaje como completado</button>` : ""}
+          ${["pendiente", "aceptada"].includes(r.estado) ? `<button class="btn btn-outline danger btn-sm" data-cancelar-reserva="${r.id}" data-fecha-salida="${r.fecha_salida}" data-hora-salida="${r.hora_salida}" data-pagado="${r.pagado ? "1" : "0"}">Cancelar reserva</button>` : ""}
           ${r.estado === "completada" ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar viaje</a>` : ""}
         </div>
       </div>`
@@ -948,9 +1013,22 @@ async function viewMisViajes(app) {
       .join("");
     app.querySelectorAll("[data-cancelar-reserva]").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        if (!confirm(mensajeConfirmacionCancelacion(btn.dataset.fechaSalida, btn.dataset.horaSalida, btn.dataset.pagado === "1"))) return;
         try {
-          await Api.patch(`/api/reservas/${btn.dataset.cancelarReserva}`, { estado: "cancelada" });
-          toast("Reserva cancelada", "success");
+          const resp = await Api.patch(`/api/reservas/${btn.dataset.cancelarReserva}`, { estado: "cancelada" });
+          toast(resp.mensaje || "Reserva cancelada", "success");
+          viewMisViajes(app);
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    });
+    app.querySelectorAll("[data-completar-reserva]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Confirmás que el viaje ya se hizo? Esto habilita las calificaciones y suma a las estadísticas.")) return;
+        try {
+          await Api.patch(`/api/reservas/${btn.dataset.completarReserva}`, { estado: "completada" });
+          toast("¡Viaje marcado como completado! Ya pueden calificarse.", "success");
           viewMisViajes(app);
         } catch (err) {
           toast(err.message, "error");
@@ -984,6 +1062,11 @@ function renderSolicitudRow(r) {
             ? `<button class="btn btn-teal btn-sm" data-aceptar="${r.id}">Aceptar</button><button class="btn btn-outline danger btn-sm" data-rechazar="${r.id}">Rechazar</button>`
             : ""
         }
+        ${
+          r.estado === "aceptada" && r.pagado
+            ? `<button class="btn btn-teal btn-sm" data-completar="${r.id}">Marcar viaje como completado</button>`
+            : ""
+        }
         ${r.estado === "completada" ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar</a>` : ""}
       </div>
     </div>`;
@@ -1006,6 +1089,18 @@ function wireSolicitudes(app) {
       try {
         await Api.patch(`/api/reservas/${btn.dataset.rechazar}`, { estado: "rechazada" });
         toast("Reserva rechazada", "info");
+        viewMisViajes(document.getElementById("app"));
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
+  app.querySelectorAll("[data-completar]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Confirmás que el viaje ya se hizo? Esto habilita las calificaciones y suma a las estadísticas.")) return;
+      try {
+        await Api.patch(`/api/reservas/${btn.dataset.completar}`, { estado: "completada" });
+        toast("¡Viaje marcado como completado! Ya pueden calificarse.", "success");
         viewMisViajes(document.getElementById("app"));
       } catch (err) {
         toast(err.message, "error");
@@ -1035,10 +1130,10 @@ async function viewPagar(app, params) {
           <div class="row"><span>Precio por asiento</span><span>${fmtMoney(reserva.precio_por_asiento)}</span></div>
           <div class="row"><span>Asientos reservados</span><span>${reserva.asientos_reservados}</span></div>
           <div class="row"><span>Costo compartido del viaje</span><span>${fmtMoney(reserva.monto_total)}</span></div>
-          <div class="row total"><span>Pagás ahora (comisión Viaje Compartido)</span><span>${fmtMoney(reserva.comision_plataforma)}</span></div>
+          <div class="row total"><span>Pagás ahora (comisión Ruta Compartida)</span><span>${fmtMoney(reserva.comision_plataforma)}</span></div>
         </div>
         <div class="info-box" style="margin-top:14px">
-          Viaje Compartido solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
+          Ruta Compartida solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
           El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo transferís vos directamente al conductor
           ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""}
           por transferencia o QR de Mercado Pago a su alias
@@ -1120,13 +1215,51 @@ function viewReglas(app) {
     <div class="container-narrow">
       <div class="section-title" style="text-align:left">
         <h1>Reglas de la Ruta</h1>
-        <p>Cuidamos la comunidad. Este es el encuadre completo de cómo funciona Viaje Compartido: qué hacemos, qué no hacemos, y qué se
-        espera de cada persona que sube al auto.</p>
+        <p>Cómo funciona un viaje en la práctica: quién puede sumarse, cómo se publica y se reserva, cómo se calcula el precio y qué
+        pasa si hay que cancelar. Para el encuadre legal completo (qué es la plataforma, responsabilidades, etc.), mirá los
+        <a href="#/terminos">Términos y Condiciones</a>. Para saber qué hacemos con tus datos, mirá la
+        <a href="#/privacidad">Política de Privacidad</a>.</p>
       </div>
-      ${renderAccordion(LEGAL_SECTIONS, "legal")}
+      ${renderAccordion(REGLAS_SECTIONS, "reglas")}
       <div class="info-box" style="margin-top:20px">
-        ¿Tenés dudas puntuales? <a href="https://wa.me/5490000000000" target="_blank" rel="noopener">Escribinos por WhatsApp</a> o mirá
+        ¿Tenés dudas puntuales? <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">Escribinos por WhatsApp</a> o mirá
         las <a href="#/ayuda">preguntas frecuentes</a>.
+      </div>
+    </div>`;
+  wireAccordions(app);
+}
+
+function viewTerminos(app) {
+  app.innerHTML = `
+    <div class="container-narrow">
+      <div class="section-title" style="text-align:left">
+        <h1>Términos y Condiciones</h1>
+        <p>Qué es Ruta Compartida, qué hace y qué no hace la plataforma, y cómo se reparten las responsabilidades entre conductor,
+        pasajero y la plataforma. Para los detalles prácticos del día a día (precios, cancelaciones), mirá las
+        <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a>.</p>
+      </div>
+      ${renderAccordion(TERMINOS_SECTIONS, "terminos")}
+      <div class="info-box" style="margin-top:20px">
+        Este documento es una descripción del funcionamiento de la plataforma y no reemplaza el asesoramiento de un profesional legal
+        ante una situación puntual. ¿Dudas? <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">Escribinos por
+        WhatsApp</a>.
+      </div>
+    </div>`;
+  wireAccordions(app);
+}
+
+function viewPrivacidad(app) {
+  app.innerHTML = `
+    <div class="container-narrow">
+      <div class="section-title" style="text-align:left">
+        <h1>Política de Privacidad</h1>
+        <p>Qué datos recopilamos (DNI, selfie de validación, documentación del vehículo, teléfono y demás), para qué los usamos, con
+        quién se comparten y cómo ejercer tus derechos sobre ellos.</p>
+      </div>
+      ${renderAccordion(PRIVACIDAD_SECTIONS, "privacidad")}
+      <div class="info-box" style="margin-top:20px">
+        ¿Querés acceder, corregir o eliminar tus datos? <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">Escribinos
+        por WhatsApp</a>.
       </div>
     </div>`;
   wireAccordions(app);
@@ -1141,7 +1274,7 @@ function viewAyuda(app) {
       </div>
       ${renderAccordion(FAQ_ITEMS, "faq")}
       <div class="info-box" style="margin-top:20px">
-        ¿No encontraste tu respuesta? <a href="https://wa.me/5490000000000" target="_blank" rel="noopener">💬 Escribinos por WhatsApp</a>
+        ¿No encontraste tu respuesta? <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">💬 Escribinos por WhatsApp</a>
       </div>
     </div>`;
   wireAccordions(app);
@@ -1155,18 +1288,33 @@ async function viewAdmin(app) {
   if (!user || user.rol !== "admin") {
     app.innerHTML = `<div class="container-narrow"><div class="card">
       <h2>Panel de administración</h2>
-      <p>Esta sección es solo para el equipo de Viaje Compartido.</p>
+      <p>Esta sección es solo para el equipo de Ruta Compartida.</p>
       <a href="#/login" class="btn btn-teal">Ingresar como admin</a>
     </div></div>`;
     return;
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  const [pendientes, config] = await Promise.all([Api.get("/api/admin/pendientes"), Api.get("/api/admin/config")]);
+  const [pendientes, config, stats] = await Promise.all([
+    Api.get("/api/admin/pendientes"),
+    Api.get("/api/admin/config"),
+    Api.get("/api/admin/estadisticas"),
+  ]);
+  const distancias = config.distancias_corredor || {};
 
   app.innerHTML = `
     <div class="container">
       <div class="section-title" style="text-align:left"><h1>Panel de administración</h1></div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3>Estadísticas</h3>
+        <div class="grid-2" style="gap:14px">
+          <div class="info-box"><strong>${stats.viajesCompletados}</strong><br><span class="muted">viajes completados</span></div>
+          <div class="info-box"><strong>${stats.pasajerosTrasladados}</strong><br><span class="muted">asientos trasladados</span></div>
+          <div class="info-box"><strong>${fmtMoney(stats.comisionFacturada)}</strong><br><span class="muted">comisión facturada (acumulada)</span></div>
+          <div class="info-box"><strong>${stats.conductoresAprobados} / ${stats.pasajerosAprobados}</strong><br><span class="muted">conductores / pasajeros aprobados</span></div>
+        </div>
+      </div>
 
       <div class="card" style="margin-bottom:20px">
         <h3>Validaciones pendientes (${pendientes.length})</h3>
@@ -1181,7 +1329,16 @@ async function viewAdmin(app) {
                 <td>${u.rol}</td>
                 <td>${escapeHtml(u.dni || "-")}</td>
                 <td>${escapeHtml(u.email)}</td>
-                <td>${[u.doc_dni_frente && "DNI", u.doc_selfie && "Selfie", u.doc_licencia && "Licencia", u.doc_seguro && "Seguro"].filter(Boolean).join(", ") || "-"}</td>
+                <td>
+                  ${[u.doc_dni_frente && "DNI", u.doc_selfie && "Selfie", u.doc_licencia && "Licencia", u.doc_seguro && "Seguro"].filter(Boolean).join(", ") || "-"}
+                  ${
+                    u.rol === "conductor"
+                      ? u.doc_vtv
+                        ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span>`
+                        : `<br><span style="color:#b00020;font-weight:600">Sin constancia de VTV</span>`
+                      : ""
+                  }
+                </td>
                 <td>
                   <button class="btn btn-teal btn-sm" data-aprobar="${u.id}">Aprobar</button>
                   <button class="btn btn-outline danger btn-sm" data-rechazar-usuario="${u.id}">Rechazar</button>
@@ -1195,15 +1352,38 @@ async function viewAdmin(app) {
 
       <div class="card">
         <h3>Valores de referencia (actualización quincenal/mensual)</h3>
-        <p class="muted">Estos valores alimentan el algoritmo de cálculo de precio (Reglas de la Ruta, punto 5).</p>
+        <p class="muted">Estos valores alimentan el algoritmo de cálculo de precio (Reglas de la Ruta, punto 3).</p>
         <form id="form-config" class="grid-2">
           <div class="field"><label>Precio nafta súper ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
-          <div class="field"><label>Peajes de referencia corredor Ruta 5/226 ($)</label><input type="number" name="peaje_default_ruta5_226" value="${config.peaje_default_ruta5_226}"></div>
           <div class="field"><label>Comisión de la plataforma (%)</label><input type="number" name="comision_plataforma_pct" value="${config.comision_plataforma_pct}"></div>
           <div class="field"><label>Comisión mínima ($)</label><input type="number" name="comision_minima" value="${config.comision_minima}"></div>
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
-          <div class="field"><label>Tolerancia de ajuste del conductor (%)</label><input type="number" name="tolerancia_ajuste_pct" value="${config.tolerancia_ajuste_pct}"></div>
+          <div class="field"><label>Piso mínimo por asiento ($/km)</label><input type="number" name="precio_minimo_por_km" value="${config.precio_minimo_por_km}"></div>
+          <div class="field"><label>Piso mínimo base ($, trayectos cortos)</label><input type="number" name="precio_minimo_base" value="${config.precio_minimo_base}"></div>
           <div class="field" style="grid-column:1/-1"><button class="btn btn-primary" type="submit">Guardar valores</button></div>
+        </form>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <h3>Distancias del corredor (desde La Plata)</h3>
+        <p class="muted">Km y peajes estimados por ruta — de acá sale automáticamente el precio de cada viaje publicado, nadie los puede
+        tocar manualmente. Son valores de referencia, no de un mapa real: revisalos y corregilos con lo que sepas de cada ruta.</p>
+        <form id="form-distancias">
+          <table class="admin-table">
+            <thead><tr><th>Ciudad</th><th>Km desde La Plata</th><th>Peaje estimado ($)</th></tr></thead>
+            <tbody>
+              ${Object.keys(distancias)
+                .map(
+                  (ciudad) => `<tr>
+                <td>${escapeHtml(ciudad)}</td>
+                <td><input type="number" min="1" data-distancia-km="${escapeHtml(ciudad)}" value="${distancias[ciudad].km}"></td>
+                <td><input type="number" min="0" data-distancia-peaje="${escapeHtml(ciudad)}" value="${distancias[ciudad].peaje}"></td>
+              </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+          <button class="btn btn-primary" type="submit" style="margin-top:10px">Guardar distancias</button>
         </form>
       </div>
     </div>`;
@@ -1230,6 +1410,26 @@ async function viewAdmin(app) {
     try {
       await Api.patch("/api/admin/config", body);
       toast("Valores actualizados", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  app.querySelector("#form-distancias").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nuevasDistancias = {};
+    app.querySelectorAll("[data-distancia-km]").forEach((input) => {
+      const ciudad = input.dataset.distanciaKm;
+      nuevasDistancias[ciudad] = nuevasDistancias[ciudad] || {};
+      nuevasDistancias[ciudad].km = Number(input.value);
+    });
+    app.querySelectorAll("[data-distancia-peaje]").forEach((input) => {
+      const ciudad = input.dataset.distanciaPeaje;
+      nuevasDistancias[ciudad] = nuevasDistancias[ciudad] || {};
+      nuevasDistancias[ciudad].peaje = Number(input.value);
+    });
+    try {
+      await Api.patch("/api/admin/config", { distancias_corredor: nuevasDistancias });
+      toast("Distancias actualizadas", "success");
     } catch (err) {
       toast(err.message, "error");
     }
@@ -1273,6 +1473,15 @@ async function viewPerfil(app) {
               </div>`
             : ""
         }
+        <div class="field" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+          <label>Cambiar contraseña</label>
+          <div class="field-row">
+            <input type="password" id="f-perfil-password" placeholder="Nueva contraseña" autocomplete="new-password">
+            <input type="password" id="f-perfil-password2" placeholder="Repetir nueva contraseña" autocomplete="new-password">
+          </div>
+          <button class="btn btn-outline" id="btn-guardar-password" style="margin-top:8px">Actualizar contraseña</button>
+          <small class="hint">Mínimo 8 caracteres.</small>
+        </div>
         <a href="#/mis-viajes" class="btn btn-teal" style="margin-top:10px">Ir a ${fresco.rol === "conductor" ? "mis viajes publicados" : "mis reservas"}</a>
       </div>
     </div>`;
@@ -1289,4 +1498,18 @@ async function viewPerfil(app) {
       }
     });
   }
+  app.querySelector("#btn-guardar-password").addEventListener("click", async () => {
+    const p1 = app.querySelector("#f-perfil-password").value;
+    const p2 = app.querySelector("#f-perfil-password2").value;
+    if (!p1 || p1.length < 8) return toast("La contraseña debe tener al menos 8 caracteres.", "error");
+    if (p1 !== p2) return toast("Las contraseñas no coinciden.", "error");
+    try {
+      await Api.patch(`/api/usuarios/${fresco.id}`, { password: p1 });
+      app.querySelector("#f-perfil-password").value = "";
+      app.querySelector("#f-perfil-password2").value = "";
+      toast("Contraseña actualizada", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
 }
