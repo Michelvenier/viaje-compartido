@@ -640,6 +640,12 @@ function viewRegistro(app, params) {
             <div class="field"><label>Repetir contraseña</label><input type="password" id="f-password2" autocomplete="new-password"></div>
           </div>
           <small class="hint">Mínimo 8 caracteres. La vas a usar para ingresar a tu cuenta.</small>
+          <div class="field" style="margin-top:16px">
+            <label>Alias de Mercado Pago (o CBU/CVU) — opcional</label>
+            <input type="text" id="f-pasajero-alias" placeholder="Ej: sofia.pasajera.mp" value="${escapeHtml(data.alias_cobro || "")}">
+            <small class="hint">Lo usamos únicamente si alguna vez hay que reembolsarte algo (por ejemplo, si el conductor reporta que
+            no viajaste por un error, o si cancelás con derecho a reembolso). Podés completarlo después desde tu perfil.</small>
+          </div>
           <div class="checkbox-row">
             <input type="checkbox" id="f-reglas" ${data.acepta_reglas ? "checked" : ""}>
             <label for="f-reglas">Leí y acepto los <a href="#/terminos" target="_blank">Términos y Condiciones</a>, las
@@ -750,6 +756,7 @@ function viewRegistro(app, params) {
         Object.assign(data, {
           telefono: q("#f-telefono")?.value, email: q("#f-email")?.value,
           password: q("#f-password")?.value, password2: q("#f-password2")?.value,
+          alias_cobro: q("#f-pasajero-alias")?.value,
           acepta_reglas: q("#f-reglas")?.checked,
         });
       } else {
@@ -925,8 +932,12 @@ async function viewMisViajes(app) {
       if (reservas.length === 0) {
         solicitudesEl.innerHTML = `<p class="muted">Todavía no recibiste solicitudes para este viaje.</p>`;
       } else {
+        // Orden de prioridad por hora de reserva: como la API ya devuelve las reservas ordenadas
+        // por created_at ASC, la posición en la cola de las "pendiente" es simplemente su orden
+        // de aparición entre ellas — se la mostramos al conductor para que sepa a quién le toca.
+        let posicion = 0;
         solicitudesEl.innerHTML = `<div style="border-top:1px solid var(--border);padding-top:10px">
-          ${reservas.map((r) => renderSolicitudRow(r)).join("")}
+          ${reservas.map((r) => renderSolicitudRow(r, r.estado === "pendiente" ? ++posicion : null)).join("")}
         </div>`;
       }
     }
@@ -1002,11 +1013,20 @@ async function viewMisViajes(app) {
             ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} por transferencia o QR a su alias <strong>${r.conductor_alias ? escapeHtml(r.conductor_alias) : "(sin cargar)"}</strong> al momento de viajar.</div>`
             : ""
         }
+        ${
+          r.estado === "aceptada" && r.pagado
+            ? `<div class="info-box" style="margin-top:10px">⏳ Después de la fecha del viaje, el conductor tiene que confirmar si viajaste — ahí se habilita la calificación.</div>`
+            : ""
+        }
+        ${
+          r.estado === "completada" && r.asistio === false
+            ? `<div class="error-box" style="margin-top:10px">🚫 El conductor reportó que no viajaste. Según nuestra política, la comisión que ya pagaste ${r.reembolso_manual_realizado ? "ya fue reembolsada" : "queda pendiente de reembolso manual por parte del equipo de Ruta Compartida"}. Si esto es un error, <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">escribinos por WhatsApp</a>.</div>`
+            : ""
+        }
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           ${r.estado === "aceptada" && !r.pagado ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar comisión ahora</a>` : ""}
-          ${r.estado === "aceptada" && r.pagado ? `<button class="btn btn-teal btn-sm" data-completar-reserva="${r.id}">Marcar viaje como completado</button>` : ""}
           ${["pendiente", "aceptada"].includes(r.estado) ? `<button class="btn btn-outline danger btn-sm" data-cancelar-reserva="${r.id}" data-fecha-salida="${r.fecha_salida}" data-hora-salida="${r.hora_salida}" data-pagado="${r.pagado ? "1" : "0"}">Cancelar reserva</button>` : ""}
-          ${r.estado === "completada" ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar viaje</a>` : ""}
+          ${r.estado === "completada" && r.asistio === true ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar viaje</a>` : ""}
         </div>
       </div>`
       )
@@ -1023,28 +1043,22 @@ async function viewMisViajes(app) {
         }
       });
     });
-    app.querySelectorAll("[data-completar-reserva]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("¿Confirmás que el viaje ya se hizo? Esto habilita las calificaciones y suma a las estadísticas.")) return;
-        try {
-          await Api.patch(`/api/reservas/${btn.dataset.completarReserva}`, { estado: "completada" });
-          toast("¡Viaje marcado como completado! Ya pueden calificarse.", "success");
-          viewMisViajes(app);
-        } catch (err) {
-          toast(err.message, "error");
-        }
-      });
-    });
   }
 }
 
-function renderSolicitudRow(r) {
+function renderSolicitudRow(r, posicion) {
+  // Orden de prioridad por reserva/hora: si hay una solicitud "pendiente" más vieja todavía sin
+  // resolver para este mismo viaje, el servidor no deja aceptar esta — se lo marcamos acá para
+  // que el conductor no se encuentre con el error recién al hacer clic.
+  const bloqueadaPorOrden = r.estado === "pendiente" && posicion > 1;
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;flex-wrap:wrap;gap:8px" data-reserva-row="${r.id}">
       <div style="display:flex;align-items:center;gap:10px">
         <div class="avatar">${iniciales(r.nombre, r.apellido)}</div>
         <div>
           <strong>${escapeHtml(r.nombre)} ${escapeHtml(r.apellido)}</strong>
+          ${r.estado === "pendiente" ? `<span class="badge" style="margin-left:6px">#${posicion} en la cola</span>` : ""}
+          ${Number(r.no_show_count) > 0 ? `<span class="badge orange" style="margin-left:4px">⚠️ ${r.no_show_count} inasistencia(s) previa(s)</span>` : ""}
           <div class="muted">${r.asientos_reservados} asiento(s) · costo del viaje ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
           ${
             r.pagado
@@ -1053,21 +1067,31 @@ function renderSolicitudRow(r) {
                 ? `<div class="muted" style="font-size:0.8rem">Todavía no pagó la comisión de la plataforma.</div>`
                 : ""
           }
+          ${
+            r.estado === "completada" && r.asistio === false
+              ? `<div class="muted" style="font-size:0.8rem">🚫 Reportaste que no viajó. La comisión que pagó ${r.reembolso_manual_realizado ? "ya fue reembolsada por el admin." : "está pendiente de reembolso manual por el admin."}</div>`
+              : ""
+          }
+          ${
+            bloqueadaPorOrden
+              ? `<div class="muted" style="font-size:0.8rem">Resolvé primero la solicitud #1 (orden de prioridad por hora de reserva).</div>`
+              : ""
+          }
         </div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span class="status-pill ${r.estado}">${r.estado}</span>
         ${
           r.estado === "pendiente"
-            ? `<button class="btn btn-teal btn-sm" data-aceptar="${r.id}">Aceptar</button><button class="btn btn-outline danger btn-sm" data-rechazar="${r.id}">Rechazar</button>`
+            ? `<button class="btn btn-teal btn-sm" data-aceptar="${r.id}" ${bloqueadaPorOrden ? "disabled" : ""}>Aceptar</button><button class="btn btn-outline danger btn-sm" data-rechazar="${r.id}">Rechazar</button>`
             : ""
         }
         ${
           r.estado === "aceptada" && r.pagado
-            ? `<button class="btn btn-teal btn-sm" data-completar="${r.id}">Marcar viaje como completado</button>`
+            ? `<button class="btn btn-teal btn-sm" data-asistio-si="${r.id}">✅ Viajó</button><button class="btn btn-outline danger btn-sm" data-asistio-no="${r.id}">❌ No se presentó</button>`
             : ""
         }
-        ${r.estado === "completada" ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar</a>` : ""}
+        ${r.estado === "completada" && r.asistio === true ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar</a>` : ""}
       </div>
     </div>`;
 }
@@ -1095,12 +1119,26 @@ function wireSolicitudes(app) {
       }
     })
   );
-  app.querySelectorAll("[data-completar]").forEach((btn) =>
+  app.querySelectorAll("[data-asistio-si]").forEach((btn) =>
     btn.addEventListener("click", async () => {
-      if (!confirm("¿Confirmás que el viaje ya se hizo? Esto habilita las calificaciones y suma a las estadísticas.")) return;
+      if (!confirm("¿Confirmás que el pasajero viajó? Esto habilita las calificaciones y suma a las estadísticas.")) return;
       try {
-        await Api.patch(`/api/reservas/${btn.dataset.completar}`, { estado: "completada" });
-        toast("¡Viaje marcado como completado! Ya pueden calificarse.", "success");
+        const user = Session.get();
+        const resp = await Api.patch(`/api/reservas/${btn.dataset.asistioSi}/asistencia`, { asistio: true, conductor_id: user.id });
+        toast(resp.mensaje, "success");
+        viewMisViajes(document.getElementById("app"));
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
+  app.querySelectorAll("[data-asistio-no]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Confirmás que el pasajero NO se presentó? La comisión que ya pagó no se le devuelve automáticamente — le avisamos al admin para que la reembolse a mano.")) return;
+      try {
+        const user = Session.get();
+        const resp = await Api.patch(`/api/reservas/${btn.dataset.asistioNo}/asistencia`, { asistio: false, conductor_id: user.id });
+        toast(resp.mensaje, "info");
         viewMisViajes(document.getElementById("app"));
       } catch (err) {
         toast(err.message, "error");
@@ -1295,11 +1333,30 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  const [pendientes, config, stats] = await Promise.all([
-    Api.get("/api/admin/pendientes"),
-    Api.get("/api/admin/config"),
-    Api.get("/api/admin/estadisticas"),
-  ]);
+  let pendientes, config, stats, reembolsos;
+  try {
+    [pendientes, config, stats, reembolsos] = await Promise.all([
+      Api.get("/api/admin/pendientes"),
+      Api.get("/api/admin/config"),
+      Api.get("/api/admin/estadisticas"),
+      Api.get("/api/admin/reembolsos-pendientes"),
+    ]);
+  } catch (e) {
+    if (e.status === 403) {
+      Session.clear();
+      app.innerHTML = `<div class="container-narrow"><div class="card">
+        <h2>Panel de administración</h2>
+        <p>Tu sesión de administrador venció o no es válida. Iniciá sesión de nuevo.</p>
+        <a href="#/login" class="btn btn-teal">Ingresar como admin</a>
+      </div></div>`;
+      return;
+    }
+    app.innerHTML = `<div class="container-narrow"><div class="card">
+      <h2>Panel de administración</h2>
+      <p>No se pudo cargar el panel: ${escapeHtml(e.message || "error desconocido")}</p>
+    </div></div>`;
+    return;
+  }
   const distancias = config.distancias_corredor || {};
 
   app.innerHTML = `
@@ -1309,11 +1366,38 @@ async function viewAdmin(app) {
       <div class="card" style="margin-bottom:20px">
         <h3>Estadísticas</h3>
         <div class="grid-2" style="gap:14px">
-          <div class="info-box"><strong>${stats.viajesCompletados}</strong><br><span class="muted">viajes completados</span></div>
+          <div class="info-box"><strong>${stats.viajesCompletados}</strong><br><span class="muted">viajes completados (pasajero confirmado)</span></div>
           <div class="info-box"><strong>${stats.pasajerosTrasladados}</strong><br><span class="muted">asientos trasladados</span></div>
-          <div class="info-box"><strong>${fmtMoney(stats.comisionFacturada)}</strong><br><span class="muted">comisión facturada (acumulada)</span></div>
+          <div class="info-box"><strong>${fmtMoney(stats.comisionFacturada)}</strong><br><span class="muted">comisión facturada (acumulada, se cobra siempre)</span></div>
           <div class="info-box"><strong>${stats.conductoresAprobados} / ${stats.pasajerosAprobados}</strong><br><span class="muted">conductores / pasajeros aprobados</span></div>
+          <div class="info-box"><strong>${stats.noShows}</strong><br><span class="muted">inasistencias reportadas (total)</span></div>
+          <div class="info-box"><strong>${stats.reembolsosPendientesCount} · ${fmtMoney(stats.reembolsosPendientesMonto)}</strong><br><span class="muted">reembolsos manuales pendientes</span></div>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3>Reembolsos manuales pendientes (${reembolsos.filter((r) => !r.reembolso_manual_realizado).length})</h3>
+        <p class="muted">Reservas donde el conductor reportó que el pasajero no viajó. La comisión se cobró igual — transferíle esto a
+        mano al pasajero y marcalo como reembolsado.</p>
+        ${
+          reembolsos.filter((r) => !r.reembolso_manual_realizado).length === 0
+            ? `<p class="muted">No hay reembolsos pendientes. 🎉</p>`
+            : `<table class="admin-table"><thead><tr><th>Pasajero</th><th>Viaje</th><th>Monto</th><th>Alias</th><th>Reportado</th><th>Acción</th></tr></thead><tbody>
+              ${reembolsos
+                .filter((r) => !r.reembolso_manual_realizado)
+                .map(
+                  (r) => `<tr>
+                <td>${escapeHtml(r.pasajero_nombre)} ${escapeHtml(r.pasajero_apellido)}<br><span class="muted" style="font-size:0.78rem">${escapeHtml(r.pasajero_email || "")}</span></td>
+                <td>${escapeHtml(r.origen_ciudad)} → ${escapeHtml(r.destino_ciudad)}<br><span class="muted" style="font-size:0.78rem">${fmtFecha(r.fecha_salida)}</span></td>
+                <td>${fmtMoney(r.comision_plataforma)}</td>
+                <td>${r.pasajero_alias ? escapeHtml(r.pasajero_alias) : '<span class="muted">sin alias</span>'}</td>
+                <td class="muted" style="font-size:0.78rem">${r.asistio_reportado_at ? fmtFecha(r.asistio_reportado_at.slice(0, 10)) : "-"}</td>
+                <td><button class="btn btn-teal btn-sm" data-marcar-reembolsado="${r.id}">Ya reembolsé</button></td>
+              </tr>`
+                )
+                .join("")}
+            </tbody></table>`
+        }
       </div>
 
       <div class="card" style="margin-bottom:20px">
@@ -1388,6 +1472,18 @@ async function viewAdmin(app) {
       </div>
     </div>`;
 
+  app.querySelectorAll("[data-marcar-reembolsado]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Confirmás que ya le transferiste el reembolso a mano a este pasajero?")) return;
+      try {
+        await Api.patch(`/api/admin/reembolsos/${btn.dataset.marcarReembolsado}/marcar-reembolsado`);
+        toast("Marcado como reembolsado", "success");
+        viewAdmin(app);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
   app.querySelectorAll("[data-aprobar]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       await Api.patch(`/api/admin/validar/${btn.dataset.aprobar}`, { estado: "aprobado" });
@@ -1446,6 +1542,9 @@ async function viewPerfil(app) {
     return;
   }
   const fresco = await Api.get(`/api/usuarios/${user.id}`);
+  // El token de admin es solo de sesión (no vive en la base) — el endpoint de usuarios no lo
+  // devuelve, así que hay que preservarlo a mano o se perdería cada vez que se refresca el perfil.
+  if (user.adminToken) fresco.adminToken = user.adminToken;
   Session.set(fresco);
   app.innerHTML = `
     <div class="container-narrow">
@@ -1473,6 +1572,24 @@ async function viewPerfil(app) {
               </div>`
             : ""
         }
+        ${
+          fresco.rol === "pasajero"
+            ? `<div class="field" style="margin-top:10px">
+                <label>Alias de Mercado Pago (o CBU/CVU) para reembolsos</label>
+                <div class="field-row">
+                  <input type="text" id="f-perfil-alias" placeholder="Ej: sofia.pasajera.mp" value="${escapeHtml(fresco.alias_cobro || "")}">
+                  <button class="btn btn-outline" id="btn-guardar-alias">Guardar</button>
+                </div>
+                <small class="hint">Lo usamos solo si alguna vez hay que reembolsarte algo (inasistencia mal reportada, cancelación con
+                derecho a reembolso, etc.).</small>
+              </div>`
+            : ""
+        }
+        ${
+          fresco.rol === "pasajero" && Number(fresco.no_show_count) > 0
+            ? `<div class="info-box" style="margin-top:10px">⚠️ Tenés ${fresco.no_show_count} inasistencia(s) reportada(s) por conductores. Si creés que alguna está mal reportada, <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">escribinos por WhatsApp</a>.</div>`
+            : ""
+        }
         <div class="field" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
           <label>Cambiar contraseña</label>
           <div class="field-row">
@@ -1491,6 +1608,7 @@ async function viewPerfil(app) {
       try {
         const alias = app.querySelector("#f-perfil-alias").value;
         const actualizado = await Api.patch(`/api/usuarios/${fresco.id}`, { alias_cobro: alias });
+        if (fresco.adminToken) actualizado.adminToken = fresco.adminToken;
         Session.set(actualizado);
         toast("Alias actualizado", "success");
       } catch (err) {

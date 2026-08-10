@@ -20,6 +20,16 @@ flujo de reservas) es exactamente la misma.
    - `ADMIN_SETUP_SECRET`: otro valor secreto, distinto del anterior. Es la ÚNICA llave que permite crear o
      resetear la contraseña de la cuenta de administrador (ver el paso 7). No la compartas ni la subas al
      código — vive solo en Vercel.
+   - `RESEND_API_KEY` (opcional, pero recomendada): activa el email que te avisa cuando un conductor reporta
+     que un pasajero no viajó (para que hagas el reembolso manual de la comisión). Sin esta variable, la app
+     sigue funcionando igual — simplemente no manda ese email, y el aviso solo queda visible en el panel de
+     administración ("Reembolsos manuales pendientes"). Para activarlo: creá una cuenta gratis en
+     [resend.com](https://resend.com) (hasta 3.000 emails/mes gratis), generá una API key en su panel, y
+     pegala aquí. Con la cuenta recién creada, sin verificar un dominio propio, Resend solo te deja mandar
+     emails a la casilla con la que te registraste — que es exactamente lo que necesitás, ya que los avisos
+     son para vos.
+   - `ADMIN_EMAIL` (opcional): a qué dirección le llegan esos avisos. Si no la definís, se usa
+     `michelvenier10@gmail.com` por defecto.
 5. **Desplegar** (Vercel lo hace automáticamente al importar, o con "Redeploy" después de agregar las
    variables de entorno).
 6. **Cargar los datos de ejemplo** (una sola vez): abrí en el navegador
@@ -28,7 +38,7 @@ flujo de reservas) es exactamente la misma.
    URL más adelante, no va a duplicar los datos (revisa si ya hay usuarios cargados).
 7. **Configurar la contraseña del admin** (una sola vez, y cada vez que quieras resetearla): hacé un POST a
    `https://TU-PROYECTO.vercel.app/api/admin/configurar-admin` con body JSON
-   `{"secret": "EL_VALOR_DE_ADMIN_SETUP_SECRET", "password": "una-contraseña-de-al-menos-10-caracteres"}`
+   `{"secret": "EL_VALOR_DE_ADMIN_SETUP_SECRET", "password": "una-contraseña-de-al-menos-9-caracteres"}`
    (podés usar una extensión como Postman/Thunder Client, o `curl`). Esta es la única forma de dejar la
    cuenta admin (`admin@rutacompartida.com.ar` por defecto, se puede pasar otro `email` en el body) lista
    para iniciar sesión — así nadie puede "convertirse" en admin sin conocer `ADMIN_SETUP_SECRET`.
@@ -62,3 +72,14 @@ todavía:
 - Para `admin@rutacompartida.com.ar` esto NO aplica: la cuenta admin nunca se puede "reclamar" solo
   sabiendo el email. Su contraseña se configura exclusivamente con el endpoint protegido por
   `ADMIN_SETUP_SECRET` (ver paso 7 más arriba).
+
+### Seguridad de la cuenta admin
+
+Todas las rutas `/api/admin/*` (estadísticas, listado de usuarios, cola de reembolsos, etc.) exigen un
+token que solo se emite al iniciar sesión con una cuenta `rol="admin"` — nadie puede ver esa información
+llamando a las URLs directamente sin haber iniciado sesión como admin primero. Además:
+
+- 5 intentos de login fallidos seguidos con el mismo email bloquean esa cuenta por 15 minutos.
+- El token de sesión admin vence a las 24 hs (hay que volver a iniciar sesión después de ese tiempo).
+- Si alguna vez le sacás el rol admin a una cuenta desde la base de datos, su token deja de funcionar al
+  instante, aunque todavía no haya vencido.

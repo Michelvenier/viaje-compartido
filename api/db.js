@@ -175,6 +175,20 @@ async function initSchema() {
     -- "reembolso_aplica" queda nulo hasta que la reserva se cancela; ahí se guarda si correspondía
     -- reembolso (según la regla de las 24 hs, o 1 siempre si canceló el conductor) o no.
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS reembolso_aplica INTEGER;
+    -- "asistio" queda nulo hasta que el CONDUCTOR reporta si el pasajero viajó o no (ver
+    -- api/routes/reservas.js reportarAsistencia) — null = todavía sin reportar, 1 = viajó,
+    -- 0 = no se presentó. La comisión se cobra siempre al pagar, sin importar esto; si no viajó,
+    -- el reembolso de la comisión lo procesa el admin a mano (ver reembolso_manual_realizado).
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS asistio INTEGER;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS asistio_reportado_at TEXT;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS reembolso_manual_realizado INTEGER DEFAULT 0;
+    -- Contador de inasistencias del pasajero (reputación) — se ve tanto en el panel admin como en
+    -- la solicitud que recibe cada conductor, para que decida con esa información.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS no_show_count INTEGER DEFAULT 0;
+    -- Bloqueo por intentos de login fallidos (fuerza bruta) — aplica a toda cuenta, pero es
+    -- la protección principal de la cuenta admin. Ver api/routes/usuarios.js login().
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS intentos_fallidos INTEGER DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS bloqueado_hasta TEXT;
   `);
 
   const defaults = [

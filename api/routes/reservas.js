@@ -3,6 +3,7 @@
 
 const db = require("../db");
 const pricing = require("../pricing");
+const { enviarEmailAdmin } = require("../email");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
 // Campos "completos" del conductor (foto, bio, auto, teléfono) que solo deben verse una vez
@@ -22,11 +23,12 @@ const CAMPOS_CONDUCTOR_COMPLETOS = [
 
 function filaReserva(row) {
   if (!row) return row;
-  const copy = boolFields(row, ["pagado"]);
-  // "reembolso_aplica" queda null hasta que la reserva se cancela — a diferencia de "pagado",
-  // acá null significa "todavía no aplica" y no debe convertirse en `false`.
-  if (copy.reembolso_aplica !== null && copy.reembolso_aplica !== undefined) {
-    copy.reembolso_aplica = !!copy.reembolso_aplica;
+  const copy = boolFields(row, ["pagado", "reembolso_manual_realizado"]);
+  // "reembolso_aplica" y "asistio" quedan null hasta que corresponda (cancelación / reporte del
+  // conductor) — a diferencia de "pagado", acá null significa "todavía no aplica" y no debe
+  // convertirse en `false`.
+  for (const campo of ["reembolso_aplica", "asistio"]) {
+    if (copy[campo] !== null && copy[campo] !== undefined) copy[campo] = !!copy[campo];
   }
   const confirmada = ["aceptada", "completada"].includes(copy.estado);
   if (!confirmada) {
@@ -119,7 +121,7 @@ async function porPasajero(req, res, params) {
 
 async function porViaje(req, res, params) {
   const rows = await db.all(
-    `SELECT r.*, u.nombre, u.apellido, u.foto_perfil, u.rating_promedio, u.rating_count, u.telefono
+    `SELECT r.*, u.nombre, u.apellido, u.foto_perfil, u.rating_promedio, u.rating_count, u.telefono, u.no_show_count
      FROM reservas r JOIN usuarios u ON u.id = r.pasajero_id
      WHERE r.viaje_id = ? ORDER BY r.created_at ASC`,
     [params.viajeId]
@@ -137,26 +139,30 @@ async function cambiarEstado(req, res, params) {
   const reserva = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
   if (!reserva) return notFound(res, "Reserva no encontrada");
 
-  const permitidos = ["aceptada", "rechazada", "cancelada", "completada"];
+  // "completada" ya NO se pide acá: ahora la marca exclusivamente el conductor reportando si el
+  // pasajero viajó o no, vía PATCH /api/reservas/:id/asistencia (ver reportarAsistencia más abajo)
+  // — así siempre queda registrado ese dato, no solo un "completado" genérico.
+  const permitidos = ["aceptada", "rechazada", "cancelada"];
   if (!permitidos.includes(body.estado)) return badRequest(res, "Estado inválido");
-
-  // El viaje se marca "completado" recién cuando ya se aceptó Y se pagó la comisión — antes de
-  // eso no hay nada que confirmar. Marcarlo como completado habilita las calificaciones y suma a
-  // las estadísticas del negocio (ver /api/admin/estadisticas).
-  if (body.estado === "completada") {
-    if (reserva.estado !== "aceptada") {
-      return badRequest(res, "Solo se puede marcar como completado un viaje con una reserva aceptada.");
-    }
-    if (!reserva.pagado) {
-      return badRequest(res, "Todavía falta pagar la comisión de la plataforma para poder marcar el viaje como completado.");
-    }
-  }
 
   if (body.estado === "cancelada" && ["cancelada", "rechazada", "completada"].includes(reserva.estado)) {
     return badRequest(res, "Esta reserva ya no se puede cancelar.");
   }
 
   if (body.estado === "aceptada" && reserva.estado === "pendiente") {
+    // Orden de prioridad: por reserva, por hora — el conductor tiene que resolver (aceptar o
+    // rechazar) las solicitudes pendientes en el orden en que llegaron. No puede aceptar una más
+    // nueva mientras haya una más vieja todavía sin resolver para el mismo viaje.
+    const anterior = await db.get(
+      `SELECT id FROM reservas WHERE viaje_id = ? AND estado = 'pendiente' AND created_at < ? ORDER BY created_at ASC LIMIT 1`,
+      [reserva.viaje_id, reserva.created_at]
+    );
+    if (anterior) {
+      return badRequest(
+        res,
+        "Hay una solicitud anterior todavía pendiente para este viaje. El orden de prioridad es por hora de reserva — resolvé esa primero (aceptala o rechazala)."
+      );
+    }
     const viaje = await db.get("SELECT * FROM viajes WHERE id = ?", [reserva.viaje_id]);
     if (viaje.asientos_disponibles < reserva.asientos_reservados) {
       return badRequest(res, "Ya no quedan suficientes asientos disponibles.");
@@ -224,4 +230,70 @@ async function pagar(req, res, params) {
   });
 }
 
-module.exports = { crear, obtener, porPasajero, porViaje, cambiarEstado, pagar };
+// El CONDUCTOR (nunca el pasajero) reporta si el pasajero efectivamente viajó o no — esto es lo
+// que ahora marca la reserva como "completada" (reemplaza el viejo botón genérico de "marcar como
+// completado"). Como la comisión se cobra siempre al aceptar y pagar, sin importar si el viaje se
+// termina haciendo, si el pasajero NO viajó el reembolso de esa comisión lo procesa el admin a
+// mano — por eso se manda un email de aviso y se deja todo guardado (reembolso_manual_realizado,
+// no_show_count del pasajero) para que quede como una cola de pendientes, no se pierda nada.
+async function reportarAsistencia(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  if (typeof body.asistio !== "boolean") {
+    return badRequest(res, "Falta indicar si el pasajero viajó o no (asistio: true/false).");
+  }
+  if (!body.conductor_id) return badRequest(res, "Falta conductor_id.");
+
+  const reserva = await db.get(
+    `SELECT r.*, v.conductor_id, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida,
+            u.nombre AS pasajero_nombre, u.apellido AS pasajero_apellido, u.alias_cobro AS pasajero_alias, u.email AS pasajero_email
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = r.pasajero_id WHERE r.id = ?`,
+    [params.id]
+  );
+  if (!reserva) return notFound(res, "Reserva no encontrada");
+  if (body.conductor_id !== reserva.conductor_id) {
+    return forbidden(res, "Solo el conductor de este viaje puede reportar si el pasajero viajó o no.");
+  }
+  if (reserva.estado !== "aceptada") {
+    return badRequest(res, "Solo se puede reportar la asistencia de una reserva aceptada.");
+  }
+  if (!reserva.pagado) {
+    return badRequest(res, "Todavía falta que el pasajero pague la comisión de la plataforma.");
+  }
+
+  await db.run(
+    "UPDATE reservas SET estado = 'completada', asistio = ?, asistio_reportado_at = ?, actualizado_at = ? WHERE id = ?",
+    [body.asistio ? 1 : 0, nowIso(), nowIso(), params.id]
+  );
+
+  let emailEnviado = false;
+  if (!body.asistio) {
+    await db.run("UPDATE usuarios SET no_show_count = no_show_count + 1 WHERE id = ?", [reserva.pasajero_id]);
+    const resultado = await enviarEmailAdmin({
+      asunto: `Ruta Compartida — pasajero no viajó, reembolso manual pendiente`,
+      texto:
+        `El conductor reportó que el pasajero NO viajó en esta reserva.\n\n` +
+        `Pasajero: ${reserva.pasajero_nombre} ${reserva.pasajero_apellido} (${reserva.pasajero_email})\n` +
+        `Viaje: ${reserva.origen_ciudad} → ${reserva.destino_ciudad}, ${reserva.fecha_salida} ${reserva.hora_salida}\n\n` +
+        `Se le debe reembolsar la comisión ya pagada: $${reserva.comision_plataforma}\n` +
+        `Alias / CBU para transferirle: ${reserva.pasajero_alias || "(no cargó un alias — contactalo por WhatsApp para pedírselo)"}\n\n` +
+        `Marcá esta reserva como "reembolsado" en el panel de administración una vez que hagas la transferencia manual.`,
+    });
+    emailEnviado = resultado.enviado;
+  }
+
+  const actualizado = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
+  ok(res, {
+    ...filaReserva(actualizado),
+    emailEnviado,
+    mensaje: body.asistio
+      ? "¡Listo! Viaje confirmado. Ya se pueden calificar mutuamente."
+      : "Reportado. Como el pasajero no viajó, la comisión que ya pagó queda pendiente de un reembolso manual — se avisó al admin por email.",
+  });
+}
+
+module.exports = { crear, obtener, porPasajero, porViaje, cambiarEstado, pagar, reportarAsistencia };

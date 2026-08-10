@@ -2,7 +2,7 @@
 "use strict";
 
 const db = require("../db");
-const { ok, badRequest, notFound, forbidden, readBody, usuarioPublico, newId, nowIso, hashPassword } = require("../helpers");
+const { ok, badRequest, notFound, forbidden, readBody, usuarioPublico, boolFields, newId, nowIso, hashPassword } = require("../helpers");
 
 async function pendientes(req, res) {
   const rows = await db.all("SELECT * FROM usuarios WHERE estado_validacion = 'pendiente' ORDER BY created_at ASC");
@@ -71,21 +71,57 @@ async function actualizarConfig(req, res) {
 // Estadísticas agregadas del negocio: viajes completados, pasajeros trasladados y comisión
 // facturada. Se calculan al vuelo con SQL en vez de mantener contadores aparte, para no
 // desincronizarse nunca de la fuente real (viajes y reservas).
+//
+// "viajesCompletados"/"pasajerosTrasladados" cuentan SOLO reservas donde el conductor confirmó
+// que el pasajero realmente viajó (asistio = 1) — no alcanza con "completada", porque una reserva
+// también queda "completada" cuando el pasajero NO se presentó. "comisionFacturada" en cambio
+// suma TODO lo pagado sin importar la asistencia: la comisión se cobra igual, haya viajado o no.
 async function estadisticas(req, res) {
-  const [viajesCompletados, pasajeros, comisiones, totalConductores, totalPasajeros] = await Promise.all([
-    db.get(`SELECT COUNT(*) AS c FROM reservas WHERE estado = 'completada'`),
-    db.get(`SELECT COALESCE(SUM(asientos_reservados), 0) AS c FROM reservas WHERE estado = 'completada'`),
-    db.get(`SELECT COALESCE(SUM(comision_plataforma), 0) AS c FROM reservas WHERE pagado = 1`),
-    db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'conductor' AND estado_validacion = 'aprobado'`),
-    db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'pasajero' AND estado_validacion = 'aprobado'`),
-  ]);
+  const [viajesCompletados, pasajeros, comisiones, totalConductores, totalPasajeros, noShows, reembolsosPendientes] =
+    await Promise.all([
+      db.get(`SELECT COUNT(*) AS c FROM reservas WHERE estado = 'completada' AND asistio = 1`),
+      db.get(`SELECT COALESCE(SUM(asientos_reservados), 0) AS c FROM reservas WHERE estado = 'completada' AND asistio = 1`),
+      db.get(`SELECT COALESCE(SUM(comision_plataforma), 0) AS c FROM reservas WHERE pagado = 1`),
+      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'conductor' AND estado_validacion = 'aprobado'`),
+      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'pasajero' AND estado_validacion = 'aprobado'`),
+      db.get(`SELECT COUNT(*) AS c FROM reservas WHERE asistio = 0`),
+      db.get(
+        `SELECT COUNT(*) AS c, COALESCE(SUM(comision_plataforma), 0) AS monto FROM reservas WHERE asistio = 0 AND (reembolso_manual_realizado IS NULL OR reembolso_manual_realizado = 0)`
+      ),
+    ]);
   ok(res, {
     viajesCompletados: Number(viajesCompletados.c),
     pasajerosTrasladados: Number(pasajeros.c),
     comisionFacturada: Number(comisiones.c),
     conductoresAprobados: Number(totalConductores.c),
     pasajerosAprobados: Number(totalPasajeros.c),
+    noShows: Number(noShows.c),
+    reembolsosPendientesCount: Number(reembolsosPendientes.c),
+    reembolsosPendientesMonto: Number(reembolsosPendientes.monto),
   });
+}
+
+// Cola de reembolsos manuales: reservas donde el pasajero no viajó y todavía no se le hizo la
+// devolución de la comisión a mano. Pensado para que el admin tenga toda la información junta
+// (a quién, cuánto, a qué alias) sin tener que ir a buscarla al email o a la base a mano.
+async function reembolsosPendientes(req, res) {
+  const rows = await db.all(
+    `SELECT r.id, r.comision_plataforma, r.asistio_reportado_at, r.reembolso_manual_realizado,
+            v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida,
+            u.nombre AS pasajero_nombre, u.apellido AS pasajero_apellido, u.alias_cobro AS pasajero_alias, u.email AS pasajero_email
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = r.pasajero_id
+     WHERE r.asistio = 0
+     ORDER BY r.asistio_reportado_at DESC`
+  );
+  ok(res, rows.map((r) => boolFields(r, ["reembolso_manual_realizado"])));
+}
+
+async function marcarReembolsado(req, res, params) {
+  const row = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
+  if (!row) return notFound(res, "Reserva no encontrada");
+  if (row.asistio !== 0) return badRequest(res, "Esta reserva no corresponde a una inasistencia.");
+  await db.run("UPDATE reservas SET reembolso_manual_realizado = 1 WHERE id = ?", [params.id]);
+  ok(res, { mensaje: "Marcado como reembolsado." });
 }
 
 // Endpoint protegido de una sola vez para inicializar el esquema y cargar datos de ejemplo
@@ -120,8 +156,8 @@ async function configurarAdmin(req, res) {
   if (body.secret !== process.env.ADMIN_SETUP_SECRET) {
     return forbidden(res, "Secret incorrecto.");
   }
-  if (!body.password || String(body.password).length < 10) {
-    return badRequest(res, "La contraseña del admin debe tener al menos 10 caracteres.");
+  if (!body.password || String(body.password).length < 9) {
+    return badRequest(res, "La contraseña del admin debe tener al menos 9 caracteres.");
   }
 
   const email = body.email || "admin@rutacompartida.com.ar";
@@ -145,4 +181,15 @@ async function configurarAdmin(req, res) {
   ok(res, { mensaje: `Listo. Ya podés ingresar como administrador con el email "${email}" y la contraseña que elegiste.` });
 }
 
-module.exports = { pendientes, listarUsuarios, validar, verConfig, actualizarConfig, estadisticas, seed, configurarAdmin };
+module.exports = {
+  pendientes,
+  listarUsuarios,
+  validar,
+  verConfig,
+  actualizarConfig,
+  estadisticas,
+  reembolsosPendientes,
+  marcarReembolsado,
+  seed,
+  configurarAdmin,
+};

@@ -5,7 +5,7 @@
 
 const Router = require("./router");
 const db = require("./db");
-const { notFound, sendJson } = require("./helpers");
+const { notFound, sendJson, forbidden, verifyAdminToken } = require("./helpers");
 
 const usuarios = require("./routes/usuarios");
 const viajes = require("./routes/viajes");
@@ -14,6 +14,27 @@ const calificaciones = require("./routes/calificaciones");
 const admin = require("./routes/admin");
 
 const router = new Router();
+
+// Envuelve una ruta admin para exigir un token válido (emitido solo al hacer login con una
+// cuenta rol="admin", ver api/routes/usuarios.js login()). El token se firma con HMAC usando
+// ADMIN_SETUP_SECRET (nunca viaja al código ni se guarda en ningún lado); además de verificar
+// la firma y que no haya expirado, se vuelve a consultar la base en cada request para confirmar
+// que el usuario referenciado todavía existe y sigue teniendo rol admin — así, si algún día se le
+// revoca el rol a una cuenta, el token deja de servir al instante aunque todavía no haya vencido.
+// NO se aplica a configurarAdmin ni a seed, que tienen su propio secreto de servidor.
+function adminOnly(handler) {
+  return async (req, res, params, query) => {
+    const header = req.headers["authorization"] || req.headers["Authorization"] || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
+    const uid = token ? verifyAdminToken(token) : null;
+    if (!uid) return forbidden(res, "Necesitás iniciar sesión como administrador para acceder a esto.");
+    const usuario = await db.get("SELECT id, rol FROM usuarios WHERE id = ?", [uid]);
+    if (!usuario || usuario.rol !== "admin") {
+      return forbidden(res, "Necesitás iniciar sesión como administrador para acceder a esto.");
+    }
+    return handler(req, res, params, query);
+  };
+}
 
 router.post("/api/usuarios/conductor", usuarios.registrar("conductor"));
 router.post("/api/usuarios/pasajero", usuarios.registrar("pasajero"));
@@ -35,16 +56,23 @@ router.get("/api/reservas/pasajero/:pasajeroId", reservas.porPasajero);
 router.get("/api/reservas/viaje/:viajeId", reservas.porViaje);
 router.patch("/api/reservas/:id", reservas.cambiarEstado);
 router.post("/api/reservas/:id/pagar", reservas.pagar);
+router.patch("/api/reservas/:id/asistencia", reservas.reportarAsistencia);
 
 router.post("/api/calificaciones", calificaciones.crear);
 router.get("/api/calificaciones/usuario/:usuarioId", calificaciones.porUsuario);
 
-router.get("/api/admin/pendientes", admin.pendientes);
-router.get("/api/admin/usuarios", admin.listarUsuarios);
-router.patch("/api/admin/validar/:id", admin.validar);
-router.get("/api/admin/config", admin.verConfig);
-router.patch("/api/admin/config", admin.actualizarConfig);
-router.get("/api/admin/estadisticas", admin.estadisticas);
+// Todas estas exponen estadísticas y datos personales de usuarios/reservas — requieren un
+// token de admin válido. "seed" y "configurar-admin" quedan afuera a propósito: tienen su
+// propio secreto de servidor (SEED_SECRET / ADMIN_SETUP_SECRET) y son los únicos puntos de
+// entrada que existen antes de que exista ninguna sesión de admin.
+router.get("/api/admin/pendientes", adminOnly(admin.pendientes));
+router.get("/api/admin/usuarios", adminOnly(admin.listarUsuarios));
+router.patch("/api/admin/validar/:id", adminOnly(admin.validar));
+router.get("/api/admin/config", adminOnly(admin.verConfig));
+router.patch("/api/admin/config", adminOnly(admin.actualizarConfig));
+router.get("/api/admin/estadisticas", adminOnly(admin.estadisticas));
+router.get("/api/admin/reembolsos-pendientes", adminOnly(admin.reembolsosPendientes));
+router.patch("/api/admin/reembolsos/:id/marcar-reembolsado", adminOnly(admin.marcarReembolsado));
 router.get("/api/admin/seed", admin.seed);
 router.post("/api/admin/configurar-admin", admin.configurarAdmin);
 

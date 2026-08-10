@@ -237,15 +237,28 @@ const REGLAS_SECTIONS = [
       (foto, auto, teléfono) hasta que la reserva quede confirmada — así evitamos que alguien lo contacte por fuera de la app antes de
       confirmar y pagar. Al reservar, se envía la solicitud al conductor, quien puede <strong>aceptarla o rechazarla</strong>. Si la
       acepta, recién ahí se habilitan los datos completos de contacto entre ambas partes para coordinar el encuentro.</p>
+      <p><strong>Orden de prioridad:</strong> cuando un viaje recibe más de una solicitud, el conductor tiene que resolverlas en el orden
+      en que llegaron — primero la reserva más vieja. La plataforma no deja aceptar una solicitud más nueva mientras haya una anterior
+      todavía sin aceptar ni rechazar para el mismo viaje.</p>
       <h4>2.3 Pago</h4>
       <p>Una vez que el conductor aceptó la reserva, el pasajero paga dentro de la app <strong>únicamente la comisión de Ruta
       Compartida</strong> por el servicio de intermediación. El resto del costo del viaje <strong>no lo cobra la plataforma</strong>:
       el pasajero se lo transfiere directamente al conductor —por transferencia o QR de Mercado Pago a su alias— al momento de viajar.
       El monto de la comisión se muestra <strong>desde el momento en que el pasajero solicita la reserva</strong> (antes de confirmar
-      la solicitud) y vuelve a mostrarse en la pantalla de pago antes de confirmar — nunca es una sorpresa después de reservar.</p>
-      <h4>2.4 Ejecución y cierre</h4>
-      <p>Al finalizar el trayecto, ambas partes pueden calificar su experiencia (puntuación general, habilidad de manejo o puntualidad,
-      comodidad). Las calificaciones quedan visibles en el perfil público de cada usuario.</p>
+      la solicitud) y vuelve a mostrarse en la pantalla de pago antes de confirmar — nunca es una sorpresa después de reservar. Esta
+      comisión se cobra siempre, haya viajado o no el pasajero (ver 2.4).</p>
+      <h4>2.4 Ejecución, cierre e inasistencias</h4>
+      <p>Después de la fecha del viaje, es el <strong>conductor</strong> quien tiene que confirmar en la app si el pasajero efectivamente
+      viajó o no. Recién ahí la reserva queda "completada":</p>
+      <ul>
+        <li>Si el conductor confirma que <strong>sí viajó</strong>, se habilita que ambas partes se califiquen mutuamente (puntuación
+        general, habilidad de manejo o puntualidad, comodidad) y el viaje suma a las estadísticas de la plataforma. Las calificaciones
+        quedan visibles en el perfil público de cada usuario.</li>
+        <li>Si el conductor confirma que <strong>no se presentó</strong>, no se habilita la calificación de ese viaje. Como la comisión ya
+        se cobró al momento de aceptar y pagar, el reembolso de esa comisión al pasajero <strong>lo procesa el equipo de Ruta Compartida
+        de forma manual</strong> (no es automático) — se guarda un registro completo del caso (pasajero, monto, viaje) hasta que se
+        resuelve. Las inasistencias reportadas quedan asociadas al perfil del pasajero.</li>
+      </ul>
       <h4>2.5 Cancelaciones y demoras</h4>
       <p>La política de cancelación es simple y binaria, tomando como referencia el horario de salida del viaje:</p>
       <ul>
@@ -474,7 +487,15 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Cuándo se marca un viaje como completado?",
-    a: "Una vez que el conductor aceptó la reserva y el pasajero pagó la comisión de la plataforma, cualquiera de los dos puede marcar el viaje como completado desde 'Mis viajes'. Recién ahí se habilita que ambos se califiquen, y el viaje se suma a las estadísticas.",
+    a: "Después de la fecha del viaje, el conductor tiene que confirmar en 'Mis viajes' si el pasajero viajó o no. Si confirma que sí, se habilita que ambos se califiquen y el viaje suma a las estadísticas. El pasajero no puede marcarlo por su cuenta — es un dato que reporta el conductor.",
+  },
+  {
+    q: "¿Qué pasa si el conductor reporta que no viajé y es un error?",
+    a: "Escribinos por WhatsApp con los datos del viaje y lo revisamos. Si el pasajero efectivamente no viajó, la comisión que ya pagó no se le devuelve automáticamente: el equipo de Ruta Compartida hace el reembolso de forma manual una vez confirmado el caso.",
+  },
+  {
+    q: "Hay varias solicitudes para mi viaje, ¿a quién tengo que aceptar primero?",
+    a: "A la más vieja. El orden de prioridad es por hora de reserva: la plataforma no te deja aceptar una solicitud más nueva mientras tengas una anterior todavía pendiente para el mismo viaje — primero tenés que aceptarla o rechazarla.",
   },
   {
     q: "¿Qué documentación me piden para registrarme?",

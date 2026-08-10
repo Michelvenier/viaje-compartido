@@ -17,6 +17,9 @@ async function crear(req, res) {
   }
   const reserva = await db.get("SELECT * FROM reservas WHERE id = ?", [body.reserva_id]);
   if (!reserva) return notFound(res, "Reserva no encontrada");
+  if (reserva.estado !== "completada" || reserva.asistio !== 1) {
+    return badRequest(res, "Solo se puede calificar un viaje que el conductor confirmó que se hizo.");
+  }
 
   const id = newId("cal");
   await db.run(

@@ -14,7 +14,15 @@ const {
   usuarioPublico,
   hashPassword,
   verifyPassword,
+  signAdminToken,
 } = require("../helpers");
+
+// Bloqueo por fuerza bruta: después de MAX_INTENTOS intentos fallidos consecutivos,
+// la cuenta queda bloqueada por BLOQUEO_MINUTOS, sin importar si la contraseña que
+// llega después es correcta. Protege sobre todo a la cuenta admin (email conocido,
+// así que es el blanco más obvio para probar contraseñas).
+const MAX_INTENTOS = 5;
+const BLOQUEO_MINUTOS = 15;
 
 function registrar(rol) {
   return async (req, res) => {
@@ -187,6 +195,15 @@ async function login(req, res) {
   const row = await db.get("SELECT * FROM usuarios WHERE email = ?", [body.email]);
   if (!row) return notFound(res, "No encontramos una cuenta con ese email");
 
+  if (row.bloqueado_hasta && new Date(row.bloqueado_hasta) > new Date()) {
+    return forbidden(
+      res,
+      `Demasiados intentos fallidos. Esta cuenta queda bloqueada por seguridad hasta las ${new Date(
+        row.bloqueado_hasta
+      ).toLocaleTimeString("es-AR")}.`
+    );
+  }
+
   if (!row.password) {
     // Cuenta creada antes de exigir contraseña (dato viejo). La cuenta admin NUNCA se
     // "reclama" así — solo se configura vía /api/admin/configurar-admin con el secret del
@@ -205,9 +222,33 @@ async function login(req, res) {
   }
 
   if (!verifyPassword(body.password, row.password)) {
+    const intentos = Number(row.intentos_fallidos || 0) + 1;
+    const bloqueaAhora = intentos >= MAX_INTENTOS;
+    await db.run("UPDATE usuarios SET intentos_fallidos = ?, bloqueado_hasta = ? WHERE id = ?", [
+      bloqueaAhora ? 0 : intentos,
+      bloqueaAhora ? new Date(Date.now() + BLOQUEO_MINUTOS * 60 * 1000).toISOString() : null,
+      row.id,
+    ]);
+    if (bloqueaAhora) {
+      return forbidden(
+        res,
+        `Demasiados intentos fallidos. Por seguridad, esta cuenta queda bloqueada por ${BLOQUEO_MINUTOS} minutos.`
+      );
+    }
     return badRequest(res, "Contraseña incorrecta.");
   }
-  ok(res, usuarioPublico(row));
+
+  // Login correcto: reseteamos el contador de intentos fallidos.
+  if (row.intentos_fallidos || row.bloqueado_hasta) {
+    await db.run("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = ?", [row.id]);
+  }
+
+  const usuario = usuarioPublico(row);
+  if (row.rol === "admin") {
+    const token = signAdminToken(row.id);
+    if (token) usuario.adminToken = token;
+  }
+  ok(res, usuario);
 }
 
 module.exports = { registrar, obtener, actualizar, login };
