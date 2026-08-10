@@ -3,15 +3,21 @@
 // (convención de "Dynamic API Routes" por nombre de carpeta [...path]).
 "use strict";
 
-const Router = require("./router");
-const db = require("./db");
-const { notFound, sendJson, forbidden, verifyAdminToken } = require("./helpers");
+// NOTA: toda la lógica real vive en /server, NO en /api — a propósito. Vercel (plan Hobby) trata
+// cada archivo .js debajo de /api como una Serverless Function separada y limita el total a 12 por
+// deployment; si estos módulos (db, helpers, las rutas, etc.) estuvieran acá, cada uno sumaría al
+// contador y el proyecto deja de poder desplegarse en cuanto se agrega un archivo más (esto pasó
+// literalmente al agregar api/email.js). Dejando SOLO este catch-all en /api, y todo lo demás en
+// /server (que Vercel no escanea como rutas), el proyecto siempre cuenta como 1 sola función.
+const Router = require("../server/router");
+const db = require("../server/db");
+const { notFound, sendJson, forbidden, verifyAdminToken } = require("../server/helpers");
 
-const usuarios = require("./routes/usuarios");
-const viajes = require("./routes/viajes");
-const reservas = require("./routes/reservas");
-const calificaciones = require("./routes/calificaciones");
-const admin = require("./routes/admin");
+const usuarios = require("../server/routes/usuarios");
+const viajes = require("../server/routes/viajes");
+const reservas = require("../server/routes/reservas");
+const calificaciones = require("../server/routes/calificaciones");
+const admin = require("../server/routes/admin");
 
 const router = new Router();
 
