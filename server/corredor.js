@@ -1,13 +1,11 @@
 // api/corredor.js — Ciudades habilitadas y distancias/peajes de referencia del corredor,
 // para calcular automáticamente km, peajes y precio SIN que el conductor pueda tocarlos.
 //
-// Por qué una tabla fija y no Google Maps: el corredor de Ruta Compartida (fase inicial) es un
-// conjunto chico y fijo de ~14 ciudades, todas con origen o destino en La Plata (así lo dicen las
-// Reglas de la Ruta). Con eso alcanza una tabla de distancia/peaje "La Plata ↔ cada ciudad" sin
-// necesidad de una cuenta de Google Cloud con facturación ni llamadas a una API paga por cada
-// búsqueda. El día que el corredor crezca a rutas que NO pasen por La Plata, o a ciudades fuera de
-// esta lista, ahí sí conviene integrar la Distance Matrix API de Google Maps (necesitaría que se
-// cree un proyecto de Google Cloud con facturación habilitada y nos pase la API key).
+// Desde el 13 ago 2026 los viajes ya NO tienen que tener a La Plata como origen o destino: se
+// puede viajar entre dos ciudades intermedias del corredor (ej. Tandil ↔ Bolívar). Los pares que
+// incluyen a La Plata siguen usando la tabla de abajo (curada a mano, revisada por el admin, sin
+// costo por consulta); cualquier otro par se resuelve con la Distance Matrix API de Google Maps y
+// se cachea — ver server/maps.js y server/pricing.js (calcularPorCiudades) para el detalle.
 //
 // IMPORTANTE: los valores de abajo son ESTIMACIONES de distancia y peaje por ruta, no vienen de
 // un mapa real — hay que revisarlos y corregirlos desde el panel de administración (Panel de
@@ -32,6 +30,12 @@ const CIUDADES_CORREDOR = [
   "Pehuajó",
   "Trenque Lauquen",
   "Santa Rosa",
+  // Agregadas el 10 ago 2026 a pedido del usuario (ciudades intermedias entre La Plata y Santa
+  // Rosa/el corredor de Ruta 226): Saladillo, Bolívar y General Alvear (Buenos Aires — hay otra
+  // "General Alvear" en Mendoza, no es esa).
+  "Saladillo",
+  "Bolívar",
+  "General Alvear",
 ];
 
 // Distancia y peaje ESTIMADOS entre La Plata y cada ciudad del corredor (ida). Editable desde el
@@ -51,23 +55,30 @@ const DISTANCIAS_DEFAULT = {
   "Pehuajó": { km: 420, peaje: 3800 },
   "Trenque Lauquen": { km: 480, peaje: 4200 },
   "Santa Rosa": { km: 600, peaje: 5500 },
+  // Estimaciones sacadas de calculadoras de rutas públicas (no de Google Maps — ver nota arriba),
+  // igual de "a revisar desde el panel admin" que el resto de la tabla. Fuentes consultadas:
+  // ruta0.com y distanciasentre.com (10 ago 2026).
+  "Saladillo": { km: 203, peaje: 1900 },
+  "Bolívar": { km: 416, peaje: 4000 },
+  "General Alvear": { km: 258, peaje: 2500 },
 };
 
-// Dado un origen y un destino, determina la "otra ciudad" (la que no es La Plata) y valida que la
-// combinación sea una de las habilitadas en esta fase (siempre con origen o destino en La Plata).
-function resolverOtraCiudad(origenCiudad, destinoCiudad) {
+// Valida que origen y destino sean dos ciudades distintas, ambas dentro del corredor habilitado.
+// Ya NO exige que una de las dos sea La Plata (esa restricción se sacó a pedido del usuario, para
+// permitir viajes entre ciudades intermedias) — ver server/pricing.js para cómo se resuelve el km
+// según el par elegido.
+function validarCiudades(origenCiudad, destinoCiudad) {
   const origen = (origenCiudad || "").trim();
   const destino = (destinoCiudad || "").trim();
   if (!origen || !destino) return { error: "Elegí ciudad de origen y de destino." };
   if (origen === destino) return { error: "El origen y el destino no pueden ser la misma ciudad." };
-  if (origen !== CIUDAD_BASE && destino !== CIUDAD_BASE) {
-    return { error: `Por ahora solo habilitamos viajes con origen o destino en ${CIUDAD_BASE}.` };
+  if (!CIUDADES_CORREDOR.includes(origen)) {
+    return { error: `"${origen}" todavía no es una ciudad habilitada del corredor.` };
   }
-  const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
-  if (!CIUDADES_CORREDOR.includes(otraCiudad)) {
-    return { error: `"${otraCiudad}" todavía no es una ciudad habilitada del corredor.` };
+  if (!CIUDADES_CORREDOR.includes(destino)) {
+    return { error: `"${destino}" todavía no es una ciudad habilitada del corredor.` };
   }
-  return { otraCiudad };
+  return {};
 }
 
-module.exports = { CIUDAD_BASE, CIUDADES_CORREDOR, DISTANCIAS_DEFAULT, resolverOtraCiudad };
+module.exports = { CIUDAD_BASE, CIUDADES_CORREDOR, DISTANCIAS_DEFAULT, validarCiudades };

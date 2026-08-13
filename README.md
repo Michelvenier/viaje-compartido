@@ -30,6 +30,24 @@ flujo de reservas) es exactamente la misma.
      son para vos.
    - `ADMIN_EMAIL` (opcional): a qué dirección le llegan esos avisos. Si no la definís, se usa
      `michelvenier10@gmail.com` por defecto.
+   - `GOOGLE_MAPS_API_KEY` (opcional, pero necesaria para viajes entre ciudades intermedias): sin esta
+     variable, la app sigue calculando bien la distancia y el precio de los viajes con origen o destino en
+     La Plata (tabla curada a mano), pero cualquier otro par de ciudades del corredor (ej. Tandil ↔ Bolívar)
+     no va a poder calcularse y el conductor va a ver un error claro al intentar publicarlo. Para activarla:
+     1. Entrá a [console.cloud.google.com](https://console.cloud.google.com) y creá un proyecto nuevo (o usá
+        uno existente).
+     2. Activá la facturación del proyecto (**Facturación → Vincular una cuenta de facturación**) — Google
+        pide una tarjeta de crédito para esto, aunque el uso típico de esta app queda dentro de los $200
+        USD/mes de crédito gratis que da Google Maps Platform.
+     3. Andá a **APIs y servicios → Biblioteca**, buscá **"Distance Matrix API"** y hacé clic en **Habilitar**.
+     4. Andá a **APIs y servicios → Credenciales → Crear credenciales → Clave de API**. Copiá la clave que
+        te genera.
+     5. (Recomendado, para que nadie más pueda usar tu clave) En la clave recién creada, en
+        **Restricciones de API**, elegí "Restringir clave" y marcá solo **Distance Matrix API**.
+     6. Pegá esa clave acá como `GOOGLE_MAPS_API_KEY` en Vercel.
+     La app cachea cada distancia consultada (tabla `distancias_cache`) para no volver a pagar por la misma
+     ruta dos veces, y estima el peaje de estos trayectos como km × un valor de referencia por km (config
+     `peaje_por_km_estimado`, editable desde el panel de admin) — Google Maps no informa costo de peajes.
 5. **Desplegar** (Vercel lo hace automáticamente al importar, o con "Redeploy" después de agregar las
    variables de entorno).
 6. **Cargar los datos de ejemplo** (una sola vez): abrí en el navegador

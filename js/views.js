@@ -5,6 +5,7 @@ const CIUDADES_CORREDOR = [
   "La Plata", "Chascomús", "Rauch", "Tandil", "Balcarce", "Necochea",
   "Luján", "Mercedes", "Chivilcoy", "Bragado", "9 de Julio",
   "Carlos Casares", "Pehuajó", "Trenque Lauquen", "Santa Rosa",
+  "Saladillo", "Bolívar", "General Alvear",
 ];
 
 // Menú desplegable real con todas las ciudades del corredor. Se usa tanto para
@@ -25,7 +26,7 @@ function viewHome(app) {
   app.innerHTML = `
     <section class="hero">
       <h1>Compartí el auto. <br>Compartí los gastos.</h1>
-      <p class="sub">Conectamos conductores y pasajeros que ya hacen el mismo camino entre La Plata y las localidades de la Ruta 5 y la Ruta 226.</p>
+      <p class="sub">Conectamos conductores y pasajeros que viajan hacia el mismo destino.</p>
       <form class="search-box" id="home-search-form">
         <div class="field" style="margin-bottom:0">
           <label>Salgo de</label>
@@ -338,9 +339,6 @@ function viewPublicar(app) {
     return;
   }
 
-  const otrasCiudades = CIUDADES_CORREDOR.filter((c) => c !== "La Plata");
-  const opcionesOtraCiudad = otrasCiudades.map((c) => `<option value="${c}">${c}</option>`).join("");
-
   app.innerHTML = `
     <div class="container-narrow">
       <div class="card">
@@ -353,19 +351,15 @@ function viewPublicar(app) {
             <label>Punto de partida exacto</label>
             <input type="text" name="origen_direccion" placeholder="Ej: Terminal de Ómnibus, La Plata" required>
           </div>
-          <div class="field">
-            <label>Dirección del viaje</label>
-            <div class="field-row">
-              <label class="checkbox-row" style="flex:1"><input type="radio" name="direccion" value="desde" checked> Salgo de La Plata</label>
-              <label class="checkbox-row" style="flex:1"><input type="radio" name="direccion" value="hacia"> Vuelvo hacia La Plata</label>
+          <div class="field-row">
+            <div class="field">
+              <label>Salgo de</label>
+              ${selectCiudades("origen_ciudad", "La Plata", "", true)}
             </div>
-          </div>
-          <div class="field">
-            <label>Otra ciudad del corredor</label>
-            <select name="otra_ciudad" required>
-              <option value="" selected>Elegí una ciudad</option>
-              ${opcionesOtraCiudad}
-            </select>
+            <div class="field">
+              <label>Voy a</label>
+              ${selectCiudades("destino_ciudad", "", "Elegí destino", true)}
+            </div>
           </div>
           <div class="field">
             <label>Ciudades intermedias</label>
@@ -394,7 +388,7 @@ function viewPublicar(app) {
             </select>
           </div>
 
-          <div id="precio-preview" class="info-box" style="margin-bottom:16px">Elegí la otra ciudad para ver el precio calculado.</div>
+          <div id="precio-preview" class="info-box" style="margin-bottom:16px">Elegí origen y destino para ver el precio calculado.</div>
 
           <div class="field">
             <label>Atributos de convivencia y carga</label>
@@ -423,17 +417,22 @@ function viewPublicar(app) {
   const btnPublicar = app.querySelector("#btn-publicar");
 
   function ciudadesElegidas() {
-    const direccion = form.querySelector('[name="direccion"]:checked')?.value || "desde";
-    const otraCiudad = form.querySelector('[name="otra_ciudad"]').value;
-    if (!otraCiudad) return null;
-    return direccion === "desde"
-      ? { origen_ciudad: "La Plata", destino_ciudad: otraCiudad }
-      : { origen_ciudad: otraCiudad, destino_ciudad: "La Plata" };
+    const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
+    const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
+    if (!origen_ciudad || !destino_ciudad) return null;
+    if (origen_ciudad === destino_ciudad) return null;
+    return { origen_ciudad, destino_ciudad };
   }
 
   async function actualizarPreview() {
+    const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
+    const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
     const ciudades = ciudadesElegidas();
     btnPublicar.disabled = true;
+    if (origen_ciudad && destino_ciudad && origen_ciudad === destino_ciudad) {
+      app.querySelector("#precio-preview").innerHTML = `<span style="color:var(--danger)">El origen y el destino no pueden ser la misma ciudad.</span>`;
+      return;
+    }
     if (!ciudades) return;
     const fd = new FormData(form);
     try {
@@ -443,7 +442,7 @@ function viewPublicar(app) {
       });
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
-          <div class="row"><span>Distancia (La Plata ↔ ${escapeHtml(calc.otraCiudad)})</span><span>${calc.distanciaKm} km</span></div>
+          <div class="row"><span>Distancia (${escapeHtml(calc.origenCiudad)} ↔ ${escapeHtml(calc.destinoCiudad)})</span><span>${calc.distanciaKm} km</span></div>
           <div class="row"><span>Peajes estimados</span><span>${fmtMoney(calc.peajesEstimados)}</span></div>
           <div class="row"><span>Costo combustible (nafta a ${fmtMoney(calc.precioNaftaUsado)}/L)</span><span>${fmtMoney(calc.costoCombustible)}</span></div>
           <div class="row"><span>Techo Operativo del viaje (C.T.O.)</span><span>${fmtMoney(calc.ctoTotal)}</span></div>
@@ -455,7 +454,7 @@ function viewPublicar(app) {
       app.querySelector("#precio-preview").innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
     }
   }
-  ["direccion", "otra_ciudad", "asientos_totales"].forEach((n) => {
+  ["origen_ciudad", "destino_ciudad", "asientos_totales"].forEach((n) => {
     form.querySelectorAll(`[name="${n}"]`).forEach((el) => el.addEventListener("change", actualizarPreview));
   });
 
@@ -1333,13 +1332,14 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  let pendientes, config, stats, reembolsos;
+  let pendientes, config, stats, reembolsos, cuentasPendientes;
   try {
-    [pendientes, config, stats, reembolsos] = await Promise.all([
+    [pendientes, config, stats, reembolsos, cuentasPendientes] = await Promise.all([
       Api.get("/api/admin/pendientes"),
       Api.get("/api/admin/config"),
       Api.get("/api/admin/estadisticas"),
       Api.get("/api/admin/reembolsos-pendientes"),
+      Api.get("/api/admin/cuenta-corriente-pendientes"),
     ]);
   } catch (e) {
     if (e.status === 403) {
@@ -1401,6 +1401,31 @@ async function viewAdmin(app) {
       </div>
 
       <div class="card" style="margin-bottom:20px">
+        <h3>Cuenta corriente — pagos de conductores por confirmar (${cuentasPendientes.length})</h3>
+        <p class="muted">Pagos que un conductor informó para saldar la deuda de su cuenta corriente (por cancelar viajes con reservas
+        ya pagadas). Ojo: por ahora el "comprobante" es solo el nombre del archivo que subió, no la foto en sí — pedile que te la
+        mande por WhatsApp si necesitás verla antes de confirmar.</p>
+        ${
+          cuentasPendientes.length === 0
+            ? `<p class="muted">No hay pagos pendientes de confirmar. 🎉</p>`
+            : `<table class="admin-table"><thead><tr><th>Conductor</th><th>Monto informado</th><th>Comprobante</th><th>Deuda actual</th><th>Informado</th><th>Acción</th></tr></thead><tbody>
+              ${cuentasPendientes
+                .map(
+                  (m) => `<tr>
+                <td>${escapeHtml(m.nombre)} ${escapeHtml(m.apellido)}</td>
+                <td>${fmtMoney(m.monto)}</td>
+                <td class="muted" style="font-size:0.78rem">${escapeHtml(m.comprobante || "-")}</td>
+                <td>${fmtMoney(m.saldo_deudor)}</td>
+                <td class="muted" style="font-size:0.78rem">${m.created_at ? fmtFecha(m.created_at.slice(0, 10)) : "-"}</td>
+                <td><button class="btn btn-teal btn-sm" data-confirmar-pago-cuenta="${m.id}">Confirmar recibido</button></td>
+              </tr>`
+                )
+                .join("")}
+            </tbody></table>`
+        }
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
         <h3>Validaciones pendientes (${pendientes.length})</h3>
         ${
           pendientes.length === 0
@@ -1444,6 +1469,9 @@ async function viewAdmin(app) {
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
           <div class="field"><label>Piso mínimo por asiento ($/km)</label><input type="number" name="precio_minimo_por_km" value="${config.precio_minimo_por_km}"></div>
           <div class="field"><label>Piso mínimo base ($, trayectos cortos)</label><input type="number" name="precio_minimo_base" value="${config.precio_minimo_base}"></div>
+          <div class="field"><label>Penalización cancelación (menos de 24 hs, $)</label><input type="number" name="penalizacion_cancelacion_menos24hs" value="${config.penalizacion_cancelacion_menos24hs}"></div>
+          <div class="field"><label>Penalización cancelación (24 hs o más, $)</label><input type="number" name="penalizacion_cancelacion_mas24hs" value="${config.penalizacion_cancelacion_mas24hs}"></div>
+          <div class="field"><label>Tope de deuda para bloquear publicar ($)</label><input type="number" name="tope_saldo_deudor" value="${config.tope_saldo_deudor}"></div>
           <div class="field" style="grid-column:1/-1"><button class="btn btn-primary" type="submit">Guardar valores</button></div>
         </form>
       </div>
@@ -1478,6 +1506,18 @@ async function viewAdmin(app) {
       try {
         await Api.patch(`/api/admin/reembolsos/${btn.dataset.marcarReembolsado}/marcar-reembolsado`);
         toast("Marcado como reembolsado", "success");
+        viewAdmin(app);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
+  app.querySelectorAll("[data-confirmar-pago-cuenta]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Confirmás que recibiste esta transferencia? Se va a descontar de la deuda del conductor.")) return;
+      try {
+        await Api.patch(`/api/admin/cuenta-corriente/${btn.dataset.confirmarPagoCuenta}/confirmar`);
+        toast("Pago confirmado y descontado", "success");
         viewAdmin(app);
       } catch (err) {
         toast(err.message, "error");
@@ -1590,6 +1630,7 @@ async function viewPerfil(app) {
             ? `<div class="info-box" style="margin-top:10px">⚠️ Tenés ${fresco.no_show_count} inasistencia(s) reportada(s) por conductores. Si creés que alguna está mal reportada, <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">escribinos por WhatsApp</a>.</div>`
             : ""
         }
+        ${fresco.rol === "conductor" ? `<div id="cuenta-corriente-wrap"></div>` : ""}
         <div class="field" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
           <label>Cambiar contraseña</label>
           <div class="field-row">
@@ -1602,6 +1643,7 @@ async function viewPerfil(app) {
         <a href="#/mis-viajes" class="btn btn-teal" style="margin-top:10px">Ir a ${fresco.rol === "conductor" ? "mis viajes publicados" : "mis reservas"}</a>
       </div>
     </div>`;
+  if (fresco.rol === "conductor") renderCuentaCorriente(app, fresco);
   const btnAlias = app.querySelector("#btn-guardar-alias");
   if (btnAlias) {
     btnAlias.addEventListener("click", async () => {
@@ -1630,4 +1672,69 @@ async function viewPerfil(app) {
       toast(err.message, "error");
     }
   });
+}
+
+// Cuenta corriente del conductor (deuda por cancelaciones con reservas ya pagadas — ver
+// server/routes/viajes.js). Se carga aparte del resto del perfil porque es una llamada extra a
+// la API; así el perfil no se demora esperándola.
+async function renderCuentaCorriente(app, fresco) {
+  const wrap = app.querySelector("#cuenta-corriente-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = `<p class="muted" style="margin-top:16px">Cargando cuenta corriente…</p>`;
+  let cuenta;
+  try {
+    cuenta = await Api.get(`/api/usuarios/${fresco.id}/cuenta-corriente`);
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-box" style="margin-top:16px">No se pudo cargar tu cuenta corriente: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  const tieneDeuda = cuenta.saldoDeudor > 0;
+  const pendientes = cuenta.movimientos.filter((m) => m.tipo === "credito_pago" && m.estado === "pendiente_revision");
+  wrap.innerHTML = `
+    <div class="field" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <label>Cuenta corriente</label>
+      ${
+        tieneDeuda
+          ? `<div class="error-box">Tenés una deuda de ${fmtMoney(cuenta.saldoDeudor)}. Se genera cuando cancelás un viaje que ya
+             tenía reservas pagadas (compensa la comisión de Mercado Pago que la plataforma pierde al reembolsarle esa comisión al
+             pasajero). Por encima de cierto monto no vas a poder publicar viajes nuevos hasta regularizarla.</div>`
+          : `<p class="muted">No tenés deuda pendiente en tu cuenta corriente.</p>`
+      }
+      ${
+        pendientes.length
+          ? `<p class="muted" style="margin-top:8px">Tenés ${pendientes.length} pago(s) informado(s) esperando que el equipo lo confirme.</p>`
+          : ""
+      }
+      ${
+        tieneDeuda
+          ? `<form id="form-pago-cuenta" style="margin-top:10px">
+              <div class="field">
+                <label>Monto que transferiste</label>
+                <input type="number" min="1" id="f-pago-monto" placeholder="Ej: 3000" required>
+              </div>
+              ${renderUploadField("comprobante", "Comprobante de la transferencia")}
+              <button class="btn btn-outline" type="submit" style="margin-top:8px">Informar pago</button>
+              <small class="hint">Transferí el monto al alias/CBU de Ruta Compartida (te lo pasamos por WhatsApp) e informá acá el
+              pago — lo confirmamos y lo descontamos de tu deuda.</small>
+            </form>`
+          : ""
+      }
+    </div>`;
+  wireUploads(wrap);
+  const form = wrap.querySelector("#form-pago-cuenta");
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const monto = wrap.querySelector("#f-pago-monto").value;
+      const comprobante = wrap.querySelector('[data-upload-hidden="comprobante"]').value;
+      if (!comprobante) return toast("Subí el comprobante de la transferencia.", "error");
+      try {
+        await Api.post(`/api/usuarios/${fresco.id}/cuenta-corriente/pagos`, { monto, comprobante });
+        toast("Pago informado. Te avisamos cuando lo confirmemos.", "success");
+        renderCuentaCorriente(app, fresco);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  }
 }

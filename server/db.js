@@ -189,6 +189,38 @@ async function initSchema() {
     -- la protección principal de la cuenta admin. Ver api/routes/usuarios.js login().
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS intentos_fallidos INTEGER DEFAULT 0;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS bloqueado_hasta TEXT;
+    -- Cuenta corriente del conductor: se le debita una penalización cuando cancela un viaje que ya
+    -- tenía reservas pagadas (porque la plataforma pierde la comisión de Mercado Pago al tener que
+    -- reembolsar), y se le acredita cuando el admin confirma que pagó esa deuda a mano. Con más de
+    -- $20.000 de saldo deudor no puede publicar viajes nuevos — ver server/routes/viajes.js.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS saldo_deudor NUMERIC DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS movimientos_cuenta (
+      id TEXT PRIMARY KEY,
+      usuario_id TEXT NOT NULL REFERENCES usuarios(id),
+      tipo TEXT NOT NULL CHECK (tipo IN ('debito_cancelacion', 'credito_pago')),
+      monto NUMERIC NOT NULL,
+      motivo TEXT,
+      viaje_id TEXT REFERENCES viajes(id),
+      comprobante TEXT,
+      estado TEXT NOT NULL DEFAULT 'confirmado' CHECK (estado IN ('confirmado', 'pendiente_revision', 'rechazado')),
+      created_at TEXT NOT NULL,
+      confirmado_at TEXT
+    );
+
+    -- Cache de distancias consultadas a Google Maps (server/maps.js) para pares de ciudades que no
+    -- son "La Plata ↔ X" (esos siguen la tabla curada a mano de arriba). ciudad_a/ciudad_b siempre
+    -- se guardan en orden alfabético para que "Tandil,Bolívar" y "Bolívar,Tandil" compartan la misma
+    -- fila y no se pague dos veces la misma consulta. Sin fecha de vencimiento: la distancia entre
+    -- dos ciudades no cambia, así que el cache no necesita refrescarse.
+    CREATE TABLE IF NOT EXISTS distancias_cache (
+      ciudad_a TEXT NOT NULL,
+      ciudad_b TEXT NOT NULL,
+      km NUMERIC NOT NULL,
+      fuente TEXT NOT NULL DEFAULT 'google_maps',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (ciudad_a, ciudad_b)
+    );
   `);
 
   const defaults = [
@@ -206,6 +238,19 @@ async function initSchema() {
     // Distancia y peaje estimados de La Plata a cada ciudad del corredor (ver api/corredor.js).
     // Guardado como JSON en un solo registro de config; editable desde el panel de admin.
     ["distancias_corredor", JSON.stringify(DISTANCIAS_DEFAULT)],
+    // Penalización a la cuenta corriente del conductor cuando cancela un viaje con reservas ya
+    // pagadas (compensa la comisión de Mercado Pago que se pierde al reembolsar). Dos montos según
+    // el aviso: menos de 24 hs antes de la salida, o 24 hs o más. Editable desde el panel de admin.
+    ["penalizacion_cancelacion_menos24hs", "3000"],
+    ["penalizacion_cancelacion_mas24hs", "1000"],
+    // Tope de saldo deudor: por encima de este monto, el conductor no puede publicar viajes nuevos
+    // hasta que el admin le confirme que pagó la deuda. Editable desde el panel de admin.
+    ["tope_saldo_deudor", "20000"],
+    // Peaje ESTIMADO por km para pares de ciudades que no son "La Plata ↔ X" (esos usan el peaje
+    // curado a mano de distancias_corredor) — Google Maps no informa costo de peajes, así que se
+    // estima como km × este valor. Sacado del promedio aproximado de la tabla curada de arriba
+    // (ronda entre $8 y $12 por km según la ruta). Editable desde el panel de admin.
+    ["peaje_por_km_estimado", "9"],
   ];
   for (const [clave, valor] of defaults) {
     await run(`INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO NOTHING`, [clave, valor]);

@@ -47,6 +47,8 @@ router.post("/api/usuarios/pasajero", usuarios.registrar("pasajero"));
 router.post("/api/usuarios/login", usuarios.login);
 router.get("/api/usuarios/:id", usuarios.obtener);
 router.patch("/api/usuarios/:id", usuarios.actualizar);
+router.get("/api/usuarios/:id/cuenta-corriente", usuarios.verCuentaCorriente);
+router.post("/api/usuarios/:id/cuenta-corriente/pagos", usuarios.declararPagoCuenta);
 
 router.post("/api/viajes", viajes.publicar);
 router.get("/api/viajes", viajes.buscar);
@@ -79,6 +81,8 @@ router.patch("/api/admin/config", adminOnly(admin.actualizarConfig));
 router.get("/api/admin/estadisticas", adminOnly(admin.estadisticas));
 router.get("/api/admin/reembolsos-pendientes", adminOnly(admin.reembolsosPendientes));
 router.patch("/api/admin/reembolsos/:id/marcar-reembolsado", adminOnly(admin.marcarReembolsado));
+router.get("/api/admin/cuenta-corriente-pendientes", adminOnly(admin.cuentaCorrientePendientes));
+router.patch("/api/admin/cuenta-corriente/:id/confirmar", adminOnly(admin.confirmarPagoCuenta));
 router.get("/api/admin/seed", admin.seed);
 router.post("/api/admin/configurar-admin", admin.configurarAdmin);
 

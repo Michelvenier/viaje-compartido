@@ -3,6 +3,7 @@
 
 const db = require("../db");
 const { ok, badRequest, notFound, forbidden, readBody, usuarioPublico, boolFields, newId, nowIso, hashPassword } = require("../helpers");
+const { DISTANCIAS_DEFAULT } = require("../corredor");
 
 async function pendientes(req, res) {
   const rows = await db.all("SELECT * FROM usuarios WHERE estado_validacion = 'pendiente' ORDER BY created_at ASC");
@@ -40,6 +41,14 @@ async function verConfig(req, res) {
   const rows = await db.all("SELECT * FROM config");
   const config = {};
   rows.forEach((r) => (config[r.clave] = CLAVES_JSON.includes(r.clave) ? JSON.parse(r.valor) : Number(r.valor)));
+  // Si se agregó una ciudad nueva al código (server/corredor.js) después de que esta base ya
+  // tenía su propia fila de "distancias_corredor" guardada, esa ciudad nueva no aparece sola en
+  // la base (el INSERT inicial solo corre una vez, con ON CONFLICT DO NOTHING). Para que el panel
+  // de admin siempre muestre TODAS las ciudades habilitadas (y el admin pueda revisar/corregir el
+  // km y peaje estimado de las nuevas apenas entra, sin que nadie tenga que tocar la base a mano),
+  // acá se completa con el valor de referencia del código cualquier ciudad que falte. Ni bien el
+  // admin aprieta "Guardar distancias" una vez, esto queda persistido en la base tal cual.
+  config.distancias_corredor = { ...DISTANCIAS_DEFAULT, ...(config.distancias_corredor || {}) };
   ok(res, config);
 }
 
@@ -58,6 +67,9 @@ async function actualizarConfig(req, res) {
     "tolerancia_ajuste_pct",
     "precio_minimo_por_km",
     "precio_minimo_base",
+    "penalizacion_cancelacion_menos24hs",
+    "penalizacion_cancelacion_mas24hs",
+    "tope_saldo_deudor",
     "distancias_corredor",
   ];
   for (const clave of permitidas) {
@@ -122,6 +134,36 @@ async function marcarReembolsado(req, res, params) {
   if (row.asistio !== 0) return badRequest(res, "Esta reserva no corresponde a una inasistencia.");
   await db.run("UPDATE reservas SET reembolso_manual_realizado = 1 WHERE id = ?", [params.id]);
   ok(res, { mensaje: "Marcado como reembolsado." });
+}
+
+// Cola de pagos de cuenta corriente declarados por conductores (deuda por cancelaciones con
+// reservas ya pagadas) que todavía no confirmó el admin — mismo patrón que reembolsosPendientes:
+// toda la info junta para no tener que ir a buscarla a la base a mano.
+async function cuentaCorrientePendientes(req, res) {
+  const rows = await db.all(
+    `SELECT m.id, m.monto, m.comprobante, m.created_at, u.id AS conductor_id, u.nombre, u.apellido, u.saldo_deudor
+     FROM movimientos_cuenta m JOIN usuarios u ON u.id = m.usuario_id
+     WHERE m.tipo = 'credito_pago' AND m.estado = 'pendiente_revision'
+     ORDER BY m.created_at ASC`
+  );
+  ok(res, rows);
+}
+
+// El admin confirma que efectivamente recibió la transferencia declarada — recién acá se
+// descuenta el saldo deudor del conductor (nunca antes, con solo la declaración del conductor).
+async function confirmarPagoCuenta(req, res, params) {
+  const mov = await db.get("SELECT * FROM movimientos_cuenta WHERE id = ?", [params.id]);
+  if (!mov) return notFound(res, "Movimiento no encontrado");
+  if (mov.tipo !== "credito_pago" || mov.estado !== "pendiente_revision") {
+    return badRequest(res, "Este movimiento no es un pago pendiente de confirmar.");
+  }
+  await db.run("UPDATE movimientos_cuenta SET estado = 'confirmado', confirmado_at = ? WHERE id = ?", [nowIso(), params.id]);
+  await db.run("UPDATE usuarios SET saldo_deudor = GREATEST(COALESCE(saldo_deudor, 0) - ?, 0) WHERE id = ?", [
+    mov.monto,
+    mov.usuario_id,
+  ]);
+  const actualizado = await db.get("SELECT saldo_deudor FROM usuarios WHERE id = ?", [mov.usuario_id]);
+  ok(res, { mensaje: "Pago confirmado y descontado de la cuenta corriente.", saldoDeudor: Number(actualizado.saldo_deudor || 0) });
 }
 
 // Endpoint protegido de una sola vez para inicializar el esquema y cargar datos de ejemplo
@@ -190,6 +232,8 @@ module.exports = {
   estadisticas,
   reembolsosPendientes,
   marcarReembolsado,
+  cuentaCorrientePendientes,
+  confirmarPagoCuenta,
   seed,
   configurarAdmin,
 };

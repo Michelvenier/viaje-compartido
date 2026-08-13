@@ -251,4 +251,48 @@ async function login(req, res) {
   ok(res, usuario);
 }
 
-module.exports = { registrar, obtener, actualizar, login };
+// Cuenta corriente del conductor: saldo deudor + historial completo de movimientos (débitos por
+// cancelación, créditos por pagos ya confirmados por el admin, y pagos declarados por el conductor
+// que todavía están pendientes de que el admin confirme que los recibió). Ver
+// server/routes/viajes.js (registrarPenalizacionPorCancelacion) y server/routes/admin.js
+// (confirmarPagoCuenta) para el resto del flujo.
+async function verCuentaCorriente(req, res, params) {
+  const usuario = await db.get("SELECT id, rol, saldo_deudor FROM usuarios WHERE id = ?", [params.id]);
+  if (!usuario) return notFound(res, "Usuario no encontrado");
+  const movimientos = await db.all(
+    "SELECT * FROM movimientos_cuenta WHERE usuario_id = ? ORDER BY created_at DESC",
+    [params.id]
+  );
+  ok(res, { saldoDeudor: Number(usuario.saldo_deudor || 0), movimientos });
+}
+
+// El conductor declara que ya transfirió el pago de su deuda, adjuntando un comprobante — esto NO
+// descuenta el saldo todavía (queda "pendiente_revision"): el admin tiene que confirmar que
+// efectivamente lo recibió, igual que con los reembolsos manuales a pasajeros. Así no alcanza con
+// que alguien diga "ya pagué" para desbloquear la cuenta.
+async function declararPagoCuenta(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  const usuario = await db.get("SELECT id FROM usuarios WHERE id = ?", [params.id]);
+  if (!usuario) return notFound(res, "Usuario no encontrado");
+  if (!body.monto || Number(body.monto) <= 0) return badRequest(res, "Indicá el monto que pagaste.");
+  if (!body.comprobante) return badRequest(res, "Subí el comprobante de la transferencia.");
+
+  const id = newId("mov");
+  await db.run(
+    `INSERT INTO movimientos_cuenta (id, usuario_id, tipo, monto, motivo, comprobante, estado, created_at)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    [id, params.id, "credito_pago", Number(body.monto), "Pago declarado por el conductor.", body.comprobante, "pendiente_revision", nowIso()]
+  );
+  const row = await db.get("SELECT * FROM movimientos_cuenta WHERE id = ?", [id]);
+  created(res, {
+    movimiento: row,
+    mensaje: "Pago informado. Queda pendiente de que el equipo de Ruta Compartida confirme que lo recibió.",
+  });
+}
+
+module.exports = { registrar, obtener, actualizar, login, verCuentaCorriente, declararPagoCuenta };

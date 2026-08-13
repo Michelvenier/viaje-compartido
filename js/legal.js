@@ -273,6 +273,13 @@ const REGLAS_SECTIONS = [
         las 24 horas (en la práctica, no corresponde reembolso).</li>
         <li>Si es el <strong>conductor</strong> quien cancela el viaje, todos los pasajeros con reserva confirmada reciben el
         <strong>reembolso total</strong>, sin excepciones y sin importar cuándo cancele.</li>
+        <li>Si el conductor cancela un viaje que ya tenía reservas <strong>pagadas</strong>, se le carga una penalización en su
+        <strong>cuenta corriente</strong> (visible desde "Mi perfil"): un monto si cancela con menos de 24 horas de anticipación, y
+        otro monto menor si cancela con 24 horas o más (valores de referencia editables desde el panel de administración). Esto
+        compensa la comisión de procesamiento de pago que la plataforma pierde al tener que reembolsarle al pasajero. Si no había
+        ninguna reserva pagada, cancelar no tiene ningún costo. Con una deuda por encima de cierto monto, el conductor no puede
+        publicar viajes nuevos hasta regularizarla — puede informar el pago desde su perfil, adjuntando el comprobante, y el equipo
+        de Ruta Compartida lo confirma.</li>
       </ul>
     `,
   },
@@ -302,10 +309,10 @@ const REGLAS_SECTIONS = [
       <p>La suma de las contribuciones de <strong>todos</strong> los pasajeros confirmados de un mismo trayecto nunca puede superar el
       100% del C.T.O. calculado para ese trayecto. Es un techo que calcula el sistema, no el conductor.</p>
       <h4>El precio no se puede editar</h4>
-      <p>La distancia, los peajes estimados y el precio final salen siempre de una tabla de referencia por ciudad (todas las ciudades
-      habilitadas tienen origen o destino en La Plata) y del cálculo automático descripto arriba. Ni el conductor ni nadie puede
-      escribir un valor distinto al publicar el viaje — así el precio nunca se aparta del costo real ni depende de cuánto quiera cobrar
-      cada persona.</p>
+      <p>La distancia y los peajes estimados salen siempre de una tabla de referencia por ciudad (para los trayectos con origen o
+      destino en La Plata) o de una consulta automática a un servicio de mapas (para trayectos entre otras dos ciudades del corredor),
+      y el precio final del cálculo automático descripto arriba. Ni el conductor ni nadie puede escribir un valor distinto al publicar
+      el viaje — así el precio nunca se aparta del costo real ni depende de cuánto quiera cobrar cada persona.</p>
       <h4>Comisión de Ruta Compartida</h4>
       <p>Aparte de esta contribución al conductor, la app cobra una comisión propia por su servicio de intermediación (un porcentaje del
       costo compartido del viaje, con un mínimo en pesos). Esa comisión es la que factura Ruta Compartida; el resto siempre se lo

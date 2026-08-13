@@ -4,32 +4,106 @@
 "use strict";
 
 const db = require("./db");
-const { resolverOtraCiudad } = require("./corredor");
+const maps = require("./maps");
+const { nowIso } = require("./helpers");
+const { validarCiudades, DISTANCIAS_DEFAULT, CIUDAD_BASE } = require("./corredor");
 
 async function getConfig(clave) {
   const row = await db.get("SELECT valor FROM config WHERE clave = ?", [clave]);
   return row ? Number(row.valor) : null;
 }
 
+// Único lugar que decide "¿faltan menos de 24 hs para la salida?" — lo usan tanto la política de
+// reembolso al pasajero (server/routes/reservas.js) como la penalización a la cuenta corriente del
+// conductor cuando cancela un viaje (server/routes/viajes.js), para que el mismo límite de tiempo
+// se calcule siempre igual en los dos lugares.
+function faltanMenosDe24Hs(viaje) {
+  const salida = new Date(`${viaje.fecha_salida}T${viaje.hora_salida}:00`);
+  if (Number.isNaN(salida.getTime())) return false; // si no se puede determinar la fecha, no penalizamos
+  const msHastaSalida = salida.getTime() - Date.now();
+  return msHastaSalida < 24 * 60 * 60 * 1000;
+}
+
+// Se completa con DISTANCIAS_DEFAULT (server/corredor.js) cualquier ciudad que todavía no esté
+// guardada en la base — pasa cuando se agrega una ciudad nueva al código después de que esta base
+// ya tenía su fila de config sembrada (el seed inicial no vuelve a correr). Así una ciudad nueva
+// funciona para calcular precios apenas se despliega, sin esperar a que alguien abra el panel de
+// admin y guarde — el admin igual puede corregir el valor de referencia cuando quiera, y esa
+// corrección sí queda en la base y tiene prioridad sobre el default del código.
 async function getDistanciasCorredor() {
   const row = await db.get("SELECT valor FROM config WHERE clave = ?", ["distancias_corredor"]);
-  return row ? JSON.parse(row.valor) : {};
+  const guardado = row ? JSON.parse(row.valor) : {};
+  return { ...DISTANCIAS_DEFAULT, ...guardado };
+}
+
+// Busca (y guarda) en distancias_cache el km de un par de ciudades ya consultado antes a Google
+// Maps, para no volver a pagar por la misma consulta. Se guarda siempre en orden alfabético para
+// que el par funcione en cualquier sentido (origen/destino intercambiados = misma fila).
+async function getDistanciaCacheada(ciudadA, ciudadB) {
+  const [a, b] = [ciudadA, ciudadB].sort();
+  const row = await db.get("SELECT km FROM distancias_cache WHERE ciudad_a = ? AND ciudad_b = ?", [a, b]);
+  return row ? Number(row.km) : null;
+}
+async function guardarDistanciaCache(ciudadA, ciudadB, km) {
+  const [a, b] = [ciudadA, ciudadB].sort();
+  await db.run(
+    `INSERT INTO distancias_cache (ciudad_a, ciudad_b, km, fuente, created_at) VALUES (?,?,?,?,?)
+     ON CONFLICT (ciudad_a, ciudad_b) DO UPDATE SET km = EXCLUDED.km, created_at = EXCLUDED.created_at`,
+    [a, b, km, "google_maps", nowIso()]
+  );
 }
 
 // Calcula distancia, peajes y precio de forma 100% automática a partir de las ciudades elegidas —
-// nadie (ni el conductor) puede tocar el km ni el precio: ambos salen siempre de esta tabla y de
-// calcularPrecioSugerido(). Ver api/corredor.js para el porqué de la tabla fija en vez de una API
-// externa de mapas.
+// nadie (ni el conductor) puede tocar el km ni el precio: ambos salen siempre de esta cascada y de
+// calcularPrecioSugerido(). Desde el 13 ago 2026 ya no hace falta que una de las dos ciudades sea
+// La Plata:
+//   1. Par "La Plata ↔ X": usa la tabla curada a mano (distancias_corredor) — más precisa y sin
+//      costo, se revisa desde el panel de admin.
+//   2. Cualquier otro par: primero busca en distancias_cache (ya consultado antes); si no está,
+//      llama a la Distance Matrix API de Google Maps (server/maps.js) y guarda el resultado en el
+//      cache. El peaje para estos pares se ESTIMA como km × "peaje_por_km_estimado" (config;
+//      Google Maps no informa costo de peajes) — a pedido del usuario, sin complicarlo más que eso.
+//   3. Si no hay tabla curada, no hay cache y Google Maps no está configurado (o falla), se
+//      devuelve un error claro en vez de inventar un km.
 async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos) {
-  const resuelto = resolverOtraCiudad(origenCiudad, destinoCiudad);
-  if (resuelto.error) return { error: resuelto.error };
+  const validado = validarCiudades(origenCiudad, destinoCiudad);
+  if (validado.error) return { error: validado.error };
 
-  const distancias = await getDistanciasCorredor();
-  const datos = distancias[resuelto.otraCiudad];
-  if (!datos) return { error: `No tenemos todavía la distancia de referencia para "${resuelto.otraCiudad}".` };
+  const origen = origenCiudad.trim();
+  const destino = destinoCiudad.trim();
 
-  const calculo = await calcularPrecioSugerido(datos.km, datos.peaje, asientosOfrecidos);
-  return { ...calculo, distanciaKm: datos.km, peajesEstimados: datos.peaje, otraCiudad: resuelto.otraCiudad };
+  let km = null;
+  let peaje = null;
+
+  const esParLaPlata = origen === CIUDAD_BASE || destino === CIUDAD_BASE;
+  if (esParLaPlata) {
+    const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
+    const distancias = await getDistanciasCorredor();
+    const datos = distancias[otraCiudad];
+    if (datos) {
+      km = datos.km;
+      peaje = datos.peaje;
+    }
+  }
+
+  if (km == null) {
+    km = await getDistanciaCacheada(origen, destino);
+    if (km == null) {
+      km = await maps.distanciaKmEntreCiudades(origen, destino);
+      if (km != null) await guardarDistanciaCache(origen, destino, km);
+    }
+    if (km == null) {
+      const motivo = process.env.GOOGLE_MAPS_API_KEY
+        ? "No pudimos calcular la distancia en este momento — probá de nuevo en un rato."
+        : "Esta combinación de ciudades todavía no tiene la integración con Google Maps configurada.";
+      return { error: `No tenemos la distancia entre "${origen}" y "${destino}". ${motivo}` };
+    }
+    const peajePorKm = (await getConfig("peaje_por_km_estimado")) || 0;
+    peaje = round2(km * peajePorKm);
+  }
+
+  const calculo = await calcularPrecioSugerido(km, peaje, asientosOfrecidos);
+  return { ...calculo, distanciaKm: km, peajesEstimados: peaje, origenCiudad: origen, destinoCiudad: destino };
 }
 
 async function calcularPrecioSugerido(distanciaKm, peajesTotal, asientosOfrecidos = 3) {
@@ -122,6 +196,7 @@ function round2(n) {
 module.exports = {
   getConfig,
   getDistanciasCorredor,
+  faltanMenosDe24Hs,
   calcularPrecioSugerido,
   calcularPorCiudades,
   validarPrecioElegido,

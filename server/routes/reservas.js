@@ -40,12 +40,10 @@ function filaReserva(row) {
 // Política de cancelación (24 hs binarias, ver Reglas de la Ruta 2.5 y api/routes/reservas.js):
 // si al momento de cancelar faltan 24 hs o más para la salida del viaje, corresponde reembolso
 // total (o directamente no se cobra nada, si todavía no había pagado la comisión). Si faltan
-// menos de 24 hs, no corresponde reembolso de lo ya pagado.
+// menos de 24 hs, no corresponde reembolso de lo ya pagado. Usa el mismo límite de 24 hs que la
+// penalización a la cuenta corriente del conductor (ver pricing.faltanMenosDe24Hs).
 function calcularReembolsoAplica(viaje) {
-  const salida = new Date(`${viaje.fecha_salida}T${viaje.hora_salida}:00`);
-  if (Number.isNaN(salida.getTime())) return true; // si no se puede determinar la fecha, no penalizamos al pasajero
-  const msHastaSalida = salida.getTime() - Date.now();
-  return msHastaSalida >= 24 * 60 * 60 * 1000;
+  return !pricing.faltanMenosDe24Hs(viaje);
 }
 
 async function crear(req, res) {
