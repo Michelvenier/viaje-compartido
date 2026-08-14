@@ -1454,23 +1454,24 @@ async function viewAdmin(app) {
 
       <div class="card" style="margin-bottom:20px">
         <h3>Todos los usuarios (${usuarios.length})</h3>
-        <p class="muted">Todavía no hay un "olvidé mi contraseña" self-service (el email a los usuarios necesitaría verificar un
-        dominio propio en Resend) — mientras tanto, si alguien queda afuera de su cuenta, buscalo acá y restablecele la contraseña.
-        Le pasás la temporal por WhatsApp; se la muestra una sola vez, no queda guardada en ningún lado.</p>
+        <p class="muted">Todavía no hay un "olvidé mi contraseña" self-service por mail (Resend necesitaría un dominio propio
+        verificado para poder mandarle a cualquier usuario) — por ahora la vía es esta: le restablecés la contraseña acá y se le
+        abre WhatsApp con el mensaje y la temporal ya escritos, listo para mandar al número que cargó al registrarse.</p>
         <div class="field" style="margin-bottom:10px">
-          <input type="text" id="buscar-usuario" placeholder="Buscar por nombre o email...">
+          <input type="text" id="buscar-usuario" placeholder="Buscar por nombre, email o teléfono...">
         </div>
         <table class="admin-table">
-          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Estado</th><th>Acción</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Acción</th></tr></thead>
           <tbody id="tabla-usuarios">
             ${usuarios
               .map(
-                (u) => `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email).toLowerCase())}">
+                (u) => `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email + " " + (u.telefono || "")).toLowerCase())}">
               <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
               <td>${u.rol}</td>
               <td>${escapeHtml(u.email)}</td>
+              <td>${escapeHtml(u.telefono || "-")}</td>
               <td><span class="status-pill ${u.estado_validacion}">${u.rol === "admin" ? "-" : u.estado_validacion}</span></td>
-              <td><button class="btn btn-outline btn-sm" data-resetear-password="${u.id}">Restablecer contraseña</button></td>
+              <td><button class="btn btn-outline btn-sm" data-resetear-password="${u.id}" data-usuario-telefono="${escapeHtml(u.telefono || "")}" data-usuario-nombre="${escapeHtml(u.nombre || "")}">Restablecer contraseña</button></td>
             </tr>`
               )
               .join("")}
@@ -1569,7 +1570,16 @@ async function viewAdmin(app) {
       if (!confirm("¿Restablecer la contraseña de este usuario? La actual deja de servir al instante.")) return;
       try {
         const resultado = await Api.post(`/api/admin/usuarios/${btn.dataset.resetearPassword}/resetear-password`, {});
-        alert(`${resultado.mensaje}\n\nContraseña temporal: ${resultado.passwordTemporal}`);
+        const telefono = btn.dataset.usuarioTelefono;
+        const nombre = btn.dataset.usuarioNombre || "";
+        const mensaje = `Hola ${nombre}! Te restablecimos la contraseña de tu cuenta en Ruta Compartida.\n\nTu contraseña temporal es: ${resultado.passwordTemporal}\n\nIngresá con esta contraseña y cambiala apenas puedas desde "Mi perfil".`;
+        const numeroWhatsapp = formatearNumeroWhatsapp(telefono);
+        if (numeroWhatsapp) {
+          alert(`${resultado.mensaje}\n\nContraseña temporal: ${resultado.passwordTemporal}\n\nSe abre WhatsApp con el mensaje ya escrito — revisá el número antes de mandar (el formateo es automático, puede necesitar un ajuste).`);
+          window.open(`https://wa.me/${numeroWhatsapp}?text=${encodeURIComponent(mensaje)}`, "_blank");
+        } else {
+          alert(`${resultado.mensaje}\n\nContraseña temporal: ${resultado.passwordTemporal}\n\n(Este usuario no tiene un teléfono cargado, no se puede abrir WhatsApp automáticamente — pasásela por otro medio.)`);
+        }
       } catch (err) {
         toast(err.message, "error");
       }
