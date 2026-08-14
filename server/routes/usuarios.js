@@ -65,9 +65,11 @@ function registrar(rol) {
       if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
         return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
       }
-      if (!body.alias_cobro) {
-        return badRequest(res, "Falta tu alias de Mercado Pago (o CBU/CVU) para que los pasajeros te transfieran su parte del viaje.");
-      }
+      // Ya NO se pide alias de Mercado Pago/CBU al conductor (a pedido del usuario, 14 ago 2026): el
+      // pasajero coordina el pago de su parte directamente con el conductor al momento de viajar, sin
+      // que la plataforma tenga que guardar ni mostrar un dato de cobro. El campo alias_cobro sigue
+      // existiendo en la base (lo sigue usando el pasajero, opcional, solo para reembolsos) y un
+      // conductor viejo que ya lo había cargado no lo pierde, pero ya no se exige ni se muestra.
     }
 
     const existente = await db.get("SELECT id FROM usuarios WHERE email = ?", [body.email]);

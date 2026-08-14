@@ -553,7 +553,7 @@ function viewRegistro(app, params) {
           ${renderUploadField("doc_selfie", "Selfie de validación", "Sacate una foto sosteniendo tu DNI al lado de tu cara. La revisa manualmente nuestro equipo, no usamos reconocimiento facial automático.")}
           ${renderUploadField("doc_licencia", "Licencia de conducir")}
           ${renderUploadField("doc_cedula", "Cédula verde / azul")}
-          ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de tu tarjeta de seguro (la que te pide la caminera en la Ruta 5).")}
+          ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de la tarjeta de seguro que te pide la caminera en cualquier control de ruta.")}
           ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
           <div class="field">
             <label>Fecha de vencimiento de la VTV</label>
@@ -583,11 +583,6 @@ function viewRegistro(app, params) {
             <div class="field"><label>Patente</label><input type="text" id="f-patente" placeholder="Solo para control interno" value="${escapeHtml(data.vehiculo_patente || "")}"></div>
           </div>
           ${renderUploadField("vehiculo_foto", "Foto del auto", "Para que tus pasajeros te encuentren fácil en la plaza o la estación.")}
-          <div class="field">
-            <label>Alias de Mercado Pago (o CBU/CVU)</label>
-            <input type="text" id="f-alias" placeholder="Ej: martin.conductor.mp" value="${escapeHtml(data.alias_cobro || "")}">
-            <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias — Ruta Compartida solo cobra su comisión.</small>
-          </div>
           <div class="field"><label>Cantidad de asientos disponibles</label>
             <select id="f-asientos">
               <option value="1" ${data.vehiculo_asientos == 1 ? "selected" : ""}>1</option>
@@ -735,7 +730,6 @@ function viewRegistro(app, params) {
           vehiculo_marca: q("#f-marca")?.value, vehiculo_modelo: q("#f-modelo")?.value,
           vehiculo_color: q("#f-color")?.value, vehiculo_patente: q("#f-patente")?.value,
           vehiculo_foto: getUpload("vehiculo_foto") || data.vehiculo_foto,
-          alias_cobro: q("#f-alias")?.value,
           vehiculo_asientos: Number(q("#f-asientos")?.value) || 3,
           pref_charla: app.querySelector('[name="pref_charla"]')?.value || data.pref_charla,
           pref_musica: app.querySelector('[name="pref_musica"]')?.value || data.pref_musica,
@@ -792,7 +786,6 @@ function viewRegistro(app, params) {
     }
     if (rol === "conductor" && step === 3) {
       if (!data.vehiculo_marca || !data.vehiculo_modelo || !data.vehiculo_patente) errores.push("Completá los datos del vehículo.");
-      if (!data.alias_cobro) errores.push("Ingresá tu alias de Mercado Pago (o CBU/CVU) para que los pasajeros te transfieran.");
     }
     if (rol === "pasajero" && step === 1) {
       if (!data.nombre || !data.apellido) errores.push("Completá nombre y apellido.");
@@ -847,6 +840,7 @@ function viewLogin(app) {
         </form>
         <p class="muted" style="margin-top:14px">¿No tenés cuenta? <a href="#/registro/pasajero">Creá tu perfil de pasajero</a> o
         <a href="#/registro/conductor">de conductor</a>.</p>
+        <p class="muted" style="margin-top:6px">¿Olvidaste tu contraseña? <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">Escribinos por WhatsApp</a> y te la restablecemos.</p>
       </div>
     </div>`;
 
@@ -1009,7 +1003,7 @@ async function viewMisViajes(app) {
         }
         ${
           r.pagado
-            ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} por transferencia o QR a su alias <strong>${r.conductor_alias ? escapeHtml(r.conductor_alias) : "(sin cargar)"}</strong> al momento de viajar.</div>`
+            ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} — coordinen el medio de pago (efectivo, transferencia, etc.) directamente al momento de viajar.</div>`
             : ""
         }
         ${
@@ -1171,11 +1165,9 @@ async function viewPagar(app, params) {
         </div>
         <div class="info-box" style="margin-top:14px">
           Ruta Compartida solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
-          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo transferís vos directamente al conductor
-          ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""}
-          por transferencia o QR de Mercado Pago a su alias
-          <strong>${reserva.conductor_alias ? escapeHtml(reserva.conductor_alias) : "(todavía no cargó su alias)"}</strong>
-          al momento de viajar.
+          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo transferís o pagás vos directamente al conductor
+          ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""},
+          coordinando el medio de pago entre ustedes al momento de viajar.
         </div>
         <button class="btn btn-primary btn-block" id="btn-pagar" style="margin-top:16px">💳 Pagar comisión de ${fmtMoney(reserva.comision_plataforma)} (simulado)</button>
         <p class="muted" style="margin-top:10px;text-align:center">Este es un pago simulado del prototipo — en producción se integraría un medio de pago real para cobrar solo la comisión. Recordá transferirle al conductor su parte por separado.</p>
@@ -1332,14 +1324,15 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  let pendientes, config, stats, reembolsos, cuentasPendientes;
+  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios;
   try {
-    [pendientes, config, stats, reembolsos, cuentasPendientes] = await Promise.all([
+    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios] = await Promise.all([
       Api.get("/api/admin/pendientes"),
       Api.get("/api/admin/config"),
       Api.get("/api/admin/estadisticas"),
       Api.get("/api/admin/reembolsos-pendientes"),
       Api.get("/api/admin/cuenta-corriente-pendientes"),
+      Api.get("/api/admin/usuarios"),
     ]);
   } catch (e) {
     if (e.status === 403) {
@@ -1459,6 +1452,32 @@ async function viewAdmin(app) {
         }
       </div>
 
+      <div class="card" style="margin-bottom:20px">
+        <h3>Todos los usuarios (${usuarios.length})</h3>
+        <p class="muted">Todavía no hay un "olvidé mi contraseña" self-service (el email a los usuarios necesitaría verificar un
+        dominio propio en Resend) — mientras tanto, si alguien queda afuera de su cuenta, buscalo acá y restablecele la contraseña.
+        Le pasás la temporal por WhatsApp; se la muestra una sola vez, no queda guardada en ningún lado.</p>
+        <div class="field" style="margin-bottom:10px">
+          <input type="text" id="buscar-usuario" placeholder="Buscar por nombre o email...">
+        </div>
+        <table class="admin-table">
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Estado</th><th>Acción</th></tr></thead>
+          <tbody id="tabla-usuarios">
+            ${usuarios
+              .map(
+                (u) => `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email).toLowerCase())}">
+              <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
+              <td>${u.rol}</td>
+              <td>${escapeHtml(u.email)}</td>
+              <td><span class="status-pill ${u.estado_validacion}">${u.rol === "admin" ? "-" : u.estado_validacion}</span></td>
+              <td><button class="btn btn-outline btn-sm" data-resetear-password="${u.id}">Restablecer contraseña</button></td>
+            </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+
       <div class="card">
         <h3>Valores de referencia (actualización quincenal/mensual)</h3>
         <p class="muted">Estos valores alimentan el algoritmo de cálculo de precio (Reglas de la Ruta, punto 3).</p>
@@ -1539,6 +1558,23 @@ async function viewAdmin(app) {
       viewAdmin(app);
     })
   );
+  app.querySelector("#buscar-usuario").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    app.querySelectorAll("[data-usuario-fila]").forEach((fila) => {
+      fila.style.display = fila.dataset.usuarioBusqueda.includes(q) ? "" : "none";
+    });
+  });
+  app.querySelectorAll("[data-resetear-password]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Restablecer la contraseña de este usuario? La actual deja de servir al instante.")) return;
+      try {
+        const resultado = await Api.post(`/api/admin/usuarios/${btn.dataset.resetearPassword}/resetear-password`, {});
+        alert(`${resultado.mensaje}\n\nContraseña temporal: ${resultado.passwordTemporal}`);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
   app.querySelector("#form-config").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -1600,18 +1636,6 @@ async function viewPerfil(app) {
         ${fresco.estado_validacion === "rechazado" && fresco.motivo_rechazo ? `<div class="error-box" style="margin-top:14px">Motivo: ${escapeHtml(fresco.motivo_rechazo)}</div>` : ""}
         <p style="margin-top:14px"><strong>Email:</strong> ${escapeHtml(fresco.email)}<br><strong>Celular:</strong> ${escapeHtml(fresco.telefono || "-")}</p>
         ${fresco.rol === "conductor" ? `<p><strong>Vehículo:</strong> ${escapeHtml(fresco.vehiculo_marca || "")} ${escapeHtml(fresco.vehiculo_modelo || "")} ${fresco.vehiculo_color ? "· " + escapeHtml(fresco.vehiculo_color) : ""}</p>` : ""}
-        ${
-          fresco.rol === "conductor"
-            ? `<div class="field" style="margin-top:10px">
-                <label>Alias de Mercado Pago (o CBU/CVU) para cobrar</label>
-                <div class="field-row">
-                  <input type="text" id="f-perfil-alias" placeholder="Ej: martin.conductor.mp" value="${escapeHtml(fresco.alias_cobro || "")}">
-                  <button class="btn btn-outline" id="btn-guardar-alias">Guardar</button>
-                </div>
-                <small class="hint">Los pasajeros te transfieren directamente su parte del viaje a este alias.</small>
-              </div>`
-            : ""
-        }
         ${
           fresco.rol === "pasajero"
             ? `<div class="field" style="margin-top:10px">

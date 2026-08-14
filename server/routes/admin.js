@@ -1,9 +1,11 @@
 // api/routes/admin.js — Validación manual de perfiles + configuración de precios (versión async/Postgres).
 "use strict";
 
+const crypto = require("crypto");
 const db = require("../db");
 const { ok, badRequest, notFound, forbidden, readBody, usuarioPublico, boolFields, newId, nowIso, hashPassword } = require("../helpers");
 const { DISTANCIAS_DEFAULT } = require("../corredor");
+const email = require("../email");
 
 async function pendientes(req, res) {
   const rows = await db.all("SELECT * FROM usuarios WHERE estado_validacion = 'pendiente' ORDER BY created_at ASC");
@@ -13,6 +15,38 @@ async function pendientes(req, res) {
 async function listarUsuarios(req, res) {
   const rows = await db.all("SELECT * FROM usuarios ORDER BY created_at DESC");
   ok(res, rows.map(usuarioPublico));
+}
+
+// El admin le genera una contraseña temporal random a cualquier usuario (esto también destraba el
+// bloqueo por intentos fallidos, por si era eso) y se la manda por mail. OJO: mientras no verifiques
+// un dominio propio en Resend, la cuenta queda en modo sandbox y Resend solo deja mandar a la
+// casilla con la que te registraste ahí — a cualquier otro destinatario le va a fallar el envío. Por
+// eso esto SIEMPRE devuelve también la contraseña en la respuesta (se muestra en el panel una sola
+// vez, no queda guardada en ningún lado): si el mail no pudo salir, es el respaldo para pasarla a
+// mano por WhatsApp sin que el usuario quede bloqueado esperando un mail que no va a llegar.
+async function resetearPassword(req, res, params) {
+  const usuario = await db.get("SELECT id, email, nombre, apellido FROM usuarios WHERE id = ?", [params.id]);
+  if (!usuario) return notFound(res, "Usuario no encontrado");
+
+  const passwordTemporal = crypto.randomBytes(6).toString("base64url"); // ej: "kQ3xZ9pLab"
+  await db.run("UPDATE usuarios SET password = ?, intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = ?", [
+    hashPassword(passwordTemporal),
+    params.id,
+  ]);
+
+  const envio = await email.enviarEmail({
+    destinatario: usuario.email,
+    asunto: "Tu nueva contraseña temporal — Ruta Compartida",
+    texto: `Hola ${usuario.nombre},\n\nTe restablecimos la contraseña de tu cuenta en Ruta Compartida.\n\nTu contraseña temporal es: ${passwordTemporal}\n\nIngresá con esta contraseña y cambiala apenas puedas desde "Mi perfil". Si no pediste este cambio, escribinos por WhatsApp.`,
+  });
+
+  ok(res, {
+    passwordTemporal,
+    emailEnviado: envio.enviado,
+    mensaje: envio.enviado
+      ? `Contraseña restablecida y mandada por mail a ${usuario.email}.`
+      : `Contraseña restablecida, pero no se pudo mandar el mail (${envio.motivo}). Pasásela vos por WhatsApp: ${usuario.nombre} ${usuario.apellido}, ${usuario.email}.`,
+  });
 }
 
 async function validar(req, res, params) {
@@ -227,6 +261,7 @@ module.exports = {
   pendientes,
   listarUsuarios,
   validar,
+  resetearPassword,
   verConfig,
   actualizarConfig,
   estadisticas,

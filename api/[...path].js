@@ -76,6 +76,7 @@ router.get("/api/calificaciones/usuario/:usuarioId", calificaciones.porUsuario);
 router.get("/api/admin/pendientes", adminOnly(admin.pendientes));
 router.get("/api/admin/usuarios", adminOnly(admin.listarUsuarios));
 router.patch("/api/admin/validar/:id", adminOnly(admin.validar));
+router.post("/api/admin/usuarios/:id/resetear-password", adminOnly(admin.resetearPassword));
 router.get("/api/admin/config", adminOnly(admin.verConfig));
 router.patch("/api/admin/config", adminOnly(admin.actualizarConfig));
 router.get("/api/admin/estadisticas", adminOnly(admin.estadisticas));

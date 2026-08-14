@@ -243,8 +243,8 @@ const REGLAS_SECTIONS = [
       <h4>2.3 Pago</h4>
       <p>Una vez que el conductor aceptó la reserva, el pasajero paga dentro de la app <strong>únicamente la comisión de Ruta
       Compartida</strong> por el servicio de intermediación. El resto del costo del viaje <strong>no lo cobra la plataforma</strong>:
-      el pasajero se lo transfiere directamente al conductor —por transferencia o QR de Mercado Pago a su alias— al momento de viajar.
-      El monto de la comisión se muestra <strong>desde el momento en que el pasajero solicita la reserva</strong> (antes de confirmar
+      el pasajero se lo transfiere o le paga directamente al conductor, coordinando el medio (efectivo, transferencia, etc.) entre
+      ambos al momento de viajar. El monto de la comisión se muestra <strong>desde el momento en que el pasajero solicita la reserva</strong> (antes de confirmar
       la solicitud) y vuelve a mostrarse en la pantalla de pago antes de confirmar — nunca es una sorpresa después de reservar. Esta
       comisión se cobra siempre, haya viajado o no el pasajero (ver 2.4).</p>
       <h4>2.4 Ejecución, cierre e inasistencias</h4>
@@ -373,8 +373,8 @@ const PRIVACIDAD_SECTIONS = [
         conductores, además: licencia de conducir, cédula del vehículo, póliza de seguro y constancia de VTV con su fecha de
         vencimiento.</li>
         <li><strong>Datos del vehículo</strong> (solo conductores): marca, modelo, color, patente, foto y cantidad de asientos.</li>
-        <li><strong>Datos de cobro</strong> (solo conductores): alias de Mercado Pago o CBU/CVU al que los pasajeros les transfieren su
-        parte del viaje.</li>
+        <li><strong>Datos de cobro</strong> (solo pasajeros, opcional): alias de Mercado Pago o CBU/CVU, únicamente para poder
+        reembolsarte si alguna vez corresponde.</li>
         <li><strong>Preferencias de viaje:</strong> mascotas, equipaje, música, conversación.</li>
         <li><strong>Actividad en la plataforma:</strong> viajes publicados o reservados, calificaciones recibidas y emitidas.</li>
         <li><strong>Contraseña:</strong> se guarda con una técnica de hash (scrypt) que la vuelve irreversible — ni el equipo de Ruta
@@ -486,7 +486,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Cómo se paga?",
-    a: "En la app pagás solo la comisión de Ruta Compartida, una vez que el conductor aceptó tu solicitud. El resto del costo se lo transferís vos directamente al conductor —por transferencia o QR de Mercado Pago a su alias— al momento de viajar. La plataforma no cobra ni retiene esa parte.",
+    a: "En la app pagás solo la comisión de Ruta Compartida, una vez que el conductor aceptó tu solicitud. El resto del costo se lo transferís o pagás vos directamente al conductor, coordinando el medio entre ambos al momento de viajar. La plataforma no cobra ni retiene esa parte.",
   },
   {
     q: "¿Puedo cancelar una reserva?",
