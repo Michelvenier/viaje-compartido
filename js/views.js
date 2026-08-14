@@ -1461,19 +1461,30 @@ async function viewAdmin(app) {
           <input type="text" id="buscar-usuario" placeholder="Buscar por nombre, email o teléfono...">
         </div>
         <table class="admin-table">
-          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Acción</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Valoración</th><th>Cuenta</th><th>Alta</th><th>Acción</th></tr></thead>
           <tbody id="tabla-usuarios">
             ${usuarios
-              .map(
-                (u) => `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email + " " + (u.telefono || "")).toLowerCase())}">
+              .map((u) => {
+                const valoracion = Number(u.rating_count) > 0 ? `★ ${u.rating_promedio} <span class="muted">(${u.rating_count})</span>` : '<span class="muted">Sin calificaciones</span>';
+                let cuenta = '<span class="muted">-</span>';
+                if (u.rol === "conductor" && Number(u.saldo_deudor) > 0) {
+                  cuenta = `<span style="color:#b00020;font-weight:600">Debe ${fmtMoney(u.saldo_deudor)}</span>`;
+                } else if (u.rol === "pasajero" && Number(u.no_show_count) > 0) {
+                  cuenta = `<span style="color:#b00020;font-weight:600">${u.no_show_count} inasistencia(s)</span>`;
+                }
+                const alta = u.created_at ? fmtFecha(u.created_at.slice(0, 10)) : "-";
+                return `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email + " " + (u.telefono || "")).toLowerCase())}">
               <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
               <td>${u.rol}</td>
               <td>${escapeHtml(u.email)}</td>
               <td>${escapeHtml(u.telefono || "-")}</td>
               <td><span class="status-pill ${u.estado_validacion}">${u.rol === "admin" ? "-" : u.estado_validacion}</span></td>
+              <td>${valoracion}</td>
+              <td>${cuenta}</td>
+              <td class="muted" style="font-size:0.78rem">${alta}</td>
               <td><button class="btn btn-outline btn-sm" data-resetear-password="${u.id}" data-usuario-telefono="${escapeHtml(u.telefono || "")}" data-usuario-nombre="${escapeHtml(u.nombre || "")}">Restablecer contraseña</button></td>
-            </tr>`
-              )
+            </tr>`;
+              })
               .join("")}
           </tbody>
         </table>
