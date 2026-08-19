@@ -990,7 +990,7 @@ async function viewMisViajes(app) {
         ${
           ["aceptada", "completada"].includes(r.estado)
             ? `<div class="info-box" style="margin-top:10px;display:flex;gap:10px;align-items:flex-start">
-                <div class="avatar">${iniciales(r.conductor_nombre, r.conductor_apellido)}</div>
+                ${avatarHtml(r.conductor_foto, r.conductor_nombre, r.conductor_apellido)}
                 <div>
                   <strong>${escapeHtml(r.conductor_nombre || "")} ${escapeHtml(r.conductor_apellido || "")}</strong>
                   ${r.conductor_rating_count ? `<div class="muted" style="font-size:0.8rem">★ ${r.conductor_rating_promedio} (${r.conductor_rating_count} viajes)</div>` : ""}
@@ -1049,7 +1049,7 @@ function renderSolicitudRow(r, posicion) {
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;flex-wrap:wrap;gap:8px" data-reserva-row="${r.id}">
       <div style="display:flex;align-items:center;gap:10px">
-        <div class="avatar">${iniciales(r.nombre, r.apellido)}</div>
+        ${avatarHtml(r.foto_perfil, r.nombre, r.apellido)}
         <div>
           <strong>${escapeHtml(r.nombre)} ${escapeHtml(r.apellido)}</strong>
           ${r.estado === "pendiente" ? `<span class="badge" style="margin-left:6px">#${posicion} en la cola</span>` : ""}
@@ -1785,6 +1785,35 @@ async function viewAdmin(app) {
 // ---------------------------------------------------------------------------
 // PERFIL (ver/editar preferencias propias)
 // ---------------------------------------------------------------------------
+// A pedido del usuario (19 ago 2026): antes los datos del auto (marca, modelo, color, patente,
+// foto) solo se cargaban una vez en el paso 3 del registro y no había forma de corregirlos — si un
+// conductor tenía más de un auto y publicaba/viajaba con uno distinto al cargado, el pasajero
+// siempre veía el auto viejo, sin ninguna forma de que el conductor lo actualizara. Este bloque de
+// "Mi perfil" soluciona eso, con una advertencia explícita de que el dato es único por conductor
+// (no por viaje) y hay que mantenerlo al día.
+function renderVehiculoEditable(fresco) {
+  const fotoActual =
+    fresco.vehiculo_foto && /^https?:\/\//.test(fresco.vehiculo_foto)
+      ? `<img src="${escapeHtml(fresco.vehiculo_foto)}" alt="Foto actual del auto" style="max-width:180px;border-radius:8px;display:block;margin-bottom:10px;object-fit:cover">`
+      : "";
+  return `
+    <div class="field" style="margin-top:10px;border-top:1px solid var(--border);padding-top:14px">
+      <label>Tu auto</label>
+      <div class="info-box" style="margin-bottom:10px">⚠️ Estos datos (marca, modelo, color, patente y foto) se muestran a TODOS tus pasajeros, en TODOS tus viajes — es un solo auto por cuenta, no uno por viaje. Si vas a manejar un auto distinto al que tenés cargado acá, actualizalo ACÁ antes de salir — así ningún pasajero se encuentra en el punto de encuentro con un auto que no esperaba.</div>
+      ${fotoActual}
+      <div class="field-row">
+        <div class="field"><label>Marca</label><input type="text" id="f-perfil-marca" value="${escapeHtml(fresco.vehiculo_marca || "")}"></div>
+        <div class="field"><label>Modelo</label><input type="text" id="f-perfil-modelo" value="${escapeHtml(fresco.vehiculo_modelo || "")}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Color</label><input type="text" id="f-perfil-color" value="${escapeHtml(fresco.vehiculo_color || "")}"></div>
+        <div class="field"><label>Patente</label><input type="text" id="f-perfil-patente" placeholder="Solo para control interno" value="${escapeHtml(fresco.vehiculo_patente || "")}"></div>
+      </div>
+      ${renderUploadField("vehiculo_foto", "Foto del auto", "Subí una foto nueva solo si cambiaste de auto — si no, se mantiene la que ya tenías.")}
+      <button class="btn btn-outline" id="btn-guardar-vehiculo" style="margin-top:8px">Guardar datos del auto</button>
+    </div>`;
+}
+
 async function viewPerfil(app) {
   const user = Session.get();
   if (!user) {
@@ -1800,7 +1829,7 @@ async function viewPerfil(app) {
     <div class="container-narrow">
       <div class="card">
         <div style="display:flex;gap:14px;align-items:center">
-          <div class="avatar lg">${iniciales(fresco.nombre, fresco.apellido)}</div>
+          ${avatarHtml(fresco.foto_perfil, fresco.nombre, fresco.apellido, "lg")}
           <div>
             <h2 style="margin-bottom:2px">${escapeHtml(fresco.nombre)} ${escapeHtml(fresco.apellido)}</h2>
             <span class="status-pill ${fresco.estado_validacion}">${fresco.estado_validacion}</span>
@@ -1809,7 +1838,7 @@ async function viewPerfil(app) {
         </div>
         ${fresco.estado_validacion === "rechazado" && fresco.motivo_rechazo ? `<div class="error-box" style="margin-top:14px">Motivo: ${escapeHtml(fresco.motivo_rechazo)}</div>` : ""}
         <p style="margin-top:14px"><strong>Email:</strong> ${escapeHtml(fresco.email)}<br><strong>Celular:</strong> ${escapeHtml(fresco.telefono || "-")}</p>
-        ${fresco.rol === "conductor" ? `<p><strong>Vehículo:</strong> ${escapeHtml(fresco.vehiculo_marca || "")} ${escapeHtml(fresco.vehiculo_modelo || "")} ${fresco.vehiculo_color ? "· " + escapeHtml(fresco.vehiculo_color) : ""}</p>` : ""}
+        ${fresco.rol === "conductor" ? renderVehiculoEditable(fresco) : ""}
         ${
           fresco.rol === "pasajero"
             ? `<div class="field" style="margin-top:10px">
@@ -1842,6 +1871,33 @@ async function viewPerfil(app) {
       </div>
     </div>`;
   if (fresco.rol === "conductor") renderCuentaCorriente(app, fresco);
+  const btnVehiculo = app.querySelector("#btn-guardar-vehiculo");
+  if (btnVehiculo) {
+    wireUploads(app);
+    // Precarga el campo oculto con la foto que ya tenía, para que si el conductor guarda sin
+    // elegir una foto nueva no se borre la que ya tenía cargada (mismo patrón que el wizard de
+    // registro: getUpload() || el valor que ya existía).
+    const hiddenFoto = app.querySelector('[data-upload-hidden="vehiculo_foto"]');
+    if (hiddenFoto && !hiddenFoto.value) hiddenFoto.value = fresco.vehiculo_foto || "";
+    btnVehiculo.addEventListener("click", async () => {
+      try {
+        const body = {
+          vehiculo_marca: app.querySelector("#f-perfil-marca").value,
+          vehiculo_modelo: app.querySelector("#f-perfil-modelo").value,
+          vehiculo_color: app.querySelector("#f-perfil-color").value,
+          vehiculo_patente: app.querySelector("#f-perfil-patente").value,
+          vehiculo_foto: hiddenFoto ? hiddenFoto.value || fresco.vehiculo_foto : fresco.vehiculo_foto,
+        };
+        const actualizado = await Api.patch(`/api/usuarios/${fresco.id}`, body);
+        if (fresco.adminToken) actualizado.adminToken = fresco.adminToken;
+        Session.set(actualizado);
+        toast("Datos del auto actualizados", "success");
+        viewPerfil(app);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  }
   const btnAlias = app.querySelector("#btn-guardar-alias");
   if (btnAlias) {
     btnAlias.addEventListener("click", async () => {

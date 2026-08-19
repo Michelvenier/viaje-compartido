@@ -26,6 +26,19 @@ function wireAccordions(root = document) {
   });
 }
 
+// Devuelve el avatar de una persona: la foto real si tiene una cargada (foto_perfil subida como
+// público, ver server/blob.js — URL completa http(s)://...), o si no las iniciales de siempre.
+// Los pathnames privados viejos (subidos antes de este cambio, o cualquier otro campo que no sea
+// foto_perfil/vehiculo_foto) NO empiezan con "http", así que caen solos al fallback de iniciales
+// en vez de romper un <img> con una URL que nadie sin sesión de admin puede ver.
+function avatarHtml(fotoUrl, nombre, apellido, claseExtra = "") {
+  const clase = `avatar ${claseExtra}`.trim();
+  if (fotoUrl && /^https?:\/\//.test(fotoUrl)) {
+    return `<img src="${escapeHtml(fotoUrl)}" alt="Foto de ${escapeHtml(nombre || "")}" class="${clase}" style="object-fit:cover">`;
+  }
+  return `<div class="${clase}">${iniciales(nombre, apellido)}</div>`;
+}
+
 function renderTripCard(viaje) {
   const c = viaje.conductor || {};
   const intermedias = (viaje.ciudades_intermedias || []).join(" · ");
@@ -165,8 +178,11 @@ async function comprimirImagen(file, maxDim = 1600, calidad = 0.82) {
 }
 
 // Sube el archivo (ya comprimido) al storage real (server/blob.js → Vercel Blob) y devuelve el
-// "pathname" que hay que guardar en el campo correspondiente — reemplaza lo que antes era "solo
-// guardar el nombre del archivo elegido".
+// valor que hay que guardar en el campo correspondiente — reemplaza lo que antes era "solo guardar
+// el nombre del archivo elegido". Para foto_perfil/vehiculo_foto el servidor sube el archivo como
+// público y devuelve la URL completa (para mostrarla directo en un <img> a la otra persona del
+// viaje); para el resto (DNI, selfie, licencia, comprobantes) sube como privado y devuelve solo el
+// pathname, que hace falta ver con sesión de admin (Api.verDocumento).
 async function subirArchivo(campo, blobOFile) {
   const tipo = blobOFile.type || "image/jpeg";
   const resp = await fetch("/api/upload", {
@@ -185,7 +201,7 @@ async function subirArchivo(campo, blobOFile) {
     data = null;
   }
   if (!resp.ok) throw new Error((data && data.error) || `Error ${resp.status} al subir el archivo`);
-  return data.pathname;
+  return data.valor;
 }
 
 function wireUploads(root = document) {
@@ -202,9 +218,9 @@ function wireUploads(root = document) {
       filenameEl.textContent = "⏳ Subiendo…";
       try {
         const comprimida = await comprimirImagen(original);
-        const pathname = await subirArchivo(name, comprimida);
+        const valor = await subirArchivo(name, comprimida);
         wrapper.classList.add("filled");
-        hidden.value = pathname;
+        hidden.value = valor;
         filenameEl.textContent = "✅ " + original.name;
       } catch (err) {
         wrapper.classList.remove("filled");

@@ -40,6 +40,14 @@ const MAX_BYTES = 8 * 1024 * 1024;
 
 const EXTENSION_POR_TIPO = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif" };
 
+// Estos dos campos son la excepción a "todo se guarda privado": la foto de perfil y la foto del
+// auto están pensadas para que las vea la OTRA persona del viaje (pasajero ⇄ conductor), sin login
+// de admin — es justamente el pedido del usuario (19 ago 2026: "quiero una imagen para cada
+// usuario, asi ven la cara los demas... asi no llega un desconocido"). Todo lo demás (DNI, selfie,
+// licencia, cédula, seguro, VTV, comprobantes de pago) sigue siendo privado — son documentos de
+// identidad/pago, no algo para mostrar a cualquiera.
+const CAMPOS_PUBLICOS = ["foto_perfil", "vehiculo_foto"];
+
 // El runtime de Vercel ya deja el body crudo en `req.body` como Buffer cuando el Content-Type no es
 // uno de los que auto-parsea a objeto/texto (json, form-urlencoded, texto plano) — que es
 // exactamente lo que mandamos acá (ver js/components.js: Content-Type: application/octet-stream).
@@ -93,10 +101,11 @@ async function subir(req, res) {
   const campo = campoCrudo.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "archivo";
   const ext = EXTENSION_POR_TIPO[contentType] || "jpg";
   const pathname = `documentos/${campo}-${newId("doc")}.${ext}`;
+  const publico = CAMPOS_PUBLICOS.includes(campo);
 
   let blob;
   try {
-    blob = await put(pathname, buffer, { access: "private", contentType, addRandomSuffix: false });
+    blob = await put(pathname, buffer, { access: publico ? "public" : "private", contentType, addRandomSuffix: false });
   } catch (err) {
     console.error("Error subiendo a Vercel Blob:", err);
     return badRequest(
@@ -105,7 +114,11 @@ async function subir(req, res) {
         "el Blob store de Vercel — ver README."
     );
   }
-  ok(res, { pathname: blob.pathname });
+  // Para campos públicos (foto_perfil, vehiculo_foto) devolvemos la URL completa y directamente
+  // fetchable, porque esta app no tiene sesiones de pasajero/conductor con las que gatear un
+  // endpoint tipo verDocumento() — el que la vea la puede mostrar tal cual en un <img>. Para todo
+  // lo demás seguimos devolviendo solo el "pathname" privado, sin URL utilizable sin sesión admin.
+  ok(res, { valor: publico ? blob.url : blob.pathname, publico });
 }
 
 // GET /api/admin/documento?pathname=... — sirve un documento privado. Se registra en

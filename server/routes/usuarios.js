@@ -159,6 +159,15 @@ async function actualizar(req, res, params) {
     "domicilio",
     "telefono",
     "vehiculo_asientos",
+    // A pedido del usuario (19 ago 2026: "por si el chofer publica en uno y viaja en otro"): antes
+    // estos 5 campos solo se cargaban una vez, en el paso 3 del registro, y no había forma de
+    // corregirlos después — si un conductor cambiaba de auto (o tenía más de uno), el pasajero
+    // seguía viendo el auto viejo para siempre. Ahora se pueden actualizar desde "Mi perfil".
+    "vehiculo_marca",
+    "vehiculo_modelo",
+    "vehiculo_color",
+    "vehiculo_patente",
+    "vehiculo_foto",
     "alias_cobro",
     "password",
   ];

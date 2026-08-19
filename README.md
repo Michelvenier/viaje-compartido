@@ -50,14 +50,19 @@ flujo de reservas) es exactamente la misma.
      `peaje_por_km_estimado`, editable desde el panel de admin) — Google Maps no informa costo de peajes.
    - **Blob store** (necesaria para que las fotos de documentos — DNI, selfie, licencia, seguro, VTV — y los
      comprobantes de pago se guarden de verdad, no solo el nombre del archivo): en el proyecto de Vercel,
-     andá a **Storage → Create Database → Blob**, elegí acceso **Private** (importante: no "Public" — son
-     documentos de identidad), ponele un nombre (ej. "Documentos"), y conectalo a este proyecto (tildá
-     Production y Preview, y Development si vas a probar en tu compu). Vercel agrega automáticamente la
-     variable `BLOB_READ_WRITE_TOKEN` (y otras) — no hay que copiar ninguna clave a mano, a diferencia de
-     Google Maps. Los archivos quedan guardados como privados: nadie puede verlos con solo la URL, hace
-     falta estar logueado como admin (`GET /api/admin/documento`, ver `server/blob.js`). El navegador
-     comprime cada foto antes de subirla (máximo ~1600px, calidad ~82%) para no acercarse al límite de 4.5 MB
-     por request que tienen las funciones de Vercel en el plan Hobby.
+     andá a **Storage → Create Database → Blob**, elegí acceso **Private** (la opción del store en sí — cada
+     subida individual decide su propio nivel de acceso en el código, ver abajo), ponele un nombre (ej.
+     "Documentos"), y conectalo a este proyecto (tildá Production y Preview, y Development si vas a probar en
+     tu compu). Vercel conecta el store por OIDC automáticamente (variables `BLOB_STORE_ID` y
+     `VERCEL_OIDC_TOKEN`) — no hace falta copiar ninguna clave a mano, a diferencia de Google Maps. La gran
+     mayoría de los archivos (DNI, selfie, licencia, cédula, seguro, VTV, comprobantes de pago) quedan
+     guardados como **privados**: nadie puede verlos con solo la URL, hace falta estar logueado como admin
+     (`GET /api/admin/documento`, ver `server/blob.js`). Las dos excepciones son `foto_perfil` y
+     `vehiculo_foto`: esas se suben como **públicas** a propósito, porque están pensadas para que las vea la
+     otra persona del viaje (pasajero ⇄ conductor) sin necesitar sesión de admin — es lo que te permite ver
+     la cara del otro antes de encontrarte en el punto de encuentro. El navegador comprime cada foto antes de
+     subirla (máximo ~1600px, calidad ~82%) para no acercarse al límite de 4.5 MB por request que tienen las
+     funciones de Vercel en el plan Hobby.
      **Ojo:** las fotos que los usuarios subieron ANTES de activar esta variable no se migran solas — para
      esas cuentas viejas, el botón "Ver" del panel admin va a decir "no encontrado" (porque lo que se había
      guardado antes era solo el nombre del archivo, no una foto real). De acá en adelante, toda subida nueva
