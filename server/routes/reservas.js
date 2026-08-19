@@ -3,6 +3,7 @@
 
 const db = require("../db");
 const pricing = require("../pricing");
+const corredor = require("../corredor");
 const { enviarEmailAdmin } = require("../email");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
@@ -33,6 +34,12 @@ function filaReserva(row) {
   const confirmada = ["aceptada", "completada"].includes(copy.estado);
   if (!confirmada) {
     for (const campo of CAMPOS_CONDUCTOR_COMPLETOS) delete copy[campo];
+  }
+  // Puntos de encuentro del viaje completo (ver server/routes/viajes.js filaViaje) — solo viene
+  // cuando el SELECT lo pidió explícitamente (porPasajero/porViaje, ver más abajo); se parsea acá
+  // igual que ahí para que el frontend siempre reciba un objeto, nunca el TEXT crudo.
+  if (copy.puntos_encuentro !== undefined) {
+    copy.puntos_encuentro = JSON.parse(copy.puntos_encuentro || "{}");
   }
   return copy;
 }
@@ -96,12 +103,46 @@ async function crear(req, res) {
     return badRequest(res, `Solo quedan ${viaje.asientos_disponibles} asiento(s) disponibles en este viaje.`);
   }
 
-  const desglose = await pricing.calcularDesgloseReserva(viaje.precio_por_asiento, asientos);
+  // Tramo del pasajero dentro del viaje (a pedido del usuario, 19 ago 2026): si el conductor va,
+  // por ejemplo, de La Plata a Pehuajó pasando por 9 de Julio, un pasajero puede reservar solo el
+  // tramo "9 de Julio -> Pehuajó" — nunca "al revés" ni fuera de la ruta real del viaje
+  // (resolverTramo lo valida). Si no se manda body.origen_ciudad/destino_ciudad, se asume el viaje
+  // completo — mismo comportamiento de siempre, sin romper nada para el frontend viejo.
+  const camino = corredor.caminoDelViaje(viaje);
+  const tramo = corredor.resolverTramo(camino, body.origen_ciudad, body.destino_ciudad);
+  if (tramo.error) return badRequest(res, tramo.error);
+
+  // El precio NUNCA se recibe del cliente (ni siquiera el que mostró la vista previa) — se
+  // recalcula acá mismo en el servidor, igual que /api/viajes/:id/desglose-reserva, para que nadie
+  // pueda manipular el monto. Tramo completo -> precio del viaje (de siempre). Tramo parcial -> se
+  // calcula de cero para ESE tramo con la misma cascada 100% automática (server/pricing.js), nunca
+  // como fracción del precio del viaje completo.
+  let precioPorAsiento = viaje.precio_por_asiento;
+  if (!tramo.esCompleto) {
+    const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
+    if (calculoTramo.error) return badRequest(res, calculoTramo.error);
+    precioPorAsiento = calculoTramo.precioSugerido;
+  }
+
+  const desglose = await pricing.calcularDesgloseReserva(precioPorAsiento, asientos);
   const id = newId("res");
   await db.run(
-    `INSERT INTO reservas (id, viaje_id, pasajero_id, asientos_reservados, estado, monto_total, comision_plataforma, monto_conductor, pagado, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    [id, viaje.id, pasajero.id, asientos, "pendiente", desglose.montoTotal, desglose.comisionPlataforma, desglose.montoConductor, 0, nowIso()]
+    `INSERT INTO reservas (id, viaje_id, pasajero_id, asientos_reservados, tramo_origen_ciudad, tramo_destino_ciudad, estado, monto_total, comision_plataforma, monto_conductor, pagado, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      viaje.id,
+      pasajero.id,
+      asientos,
+      tramo.origen,
+      tramo.destino,
+      "pendiente",
+      desglose.montoTotal,
+      desglose.comisionPlataforma,
+      desglose.montoConductor,
+      0,
+      nowIso(),
+    ]
   );
 
   const row = await db.get("SELECT * FROM reservas WHERE id = ?", [id]);
@@ -132,6 +173,7 @@ async function obtener(req, res, params) {
 async function porPasajero(req, res, params) {
   const rows = await db.all(
     `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id,
+            v.puntos_encuentro,
             ${SELECT_CONDUCTOR_RESERVA}
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id
      WHERE r.pasajero_id = ? ORDER BY r.created_at DESC`,
@@ -142,8 +184,9 @@ async function porPasajero(req, res, params) {
 
 async function porViaje(req, res, params) {
   const rows = await db.all(
-    `SELECT r.*, u.nombre, u.apellido, u.foto_perfil, u.rating_promedio, u.rating_count, u.telefono, u.no_show_count
-     FROM reservas r JOIN usuarios u ON u.id = r.pasajero_id
+    `SELECT r.*, u.nombre, u.apellido, u.foto_perfil, u.rating_promedio, u.rating_count, u.telefono, u.no_show_count,
+            v.puntos_encuentro
+     FROM reservas r JOIN usuarios u ON u.id = r.pasajero_id JOIN viajes v ON v.id = r.viaje_id
      WHERE r.viaje_id = ? ORDER BY r.created_at ASC`,
     [params.viajeId]
   );

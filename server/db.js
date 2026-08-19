@@ -208,6 +208,25 @@ async function initSchema() {
     -- una reserva aceptada no está pagada, es "deuda" del pasajero — ver server/routes/reservas.js
     -- crear() (bloquea reservas nuevas) y server/routes/admin.js (cola de confirmación).
     ALTER TABLE reservas ADD COLUMN IF NOT EXISTS comprobante_pago TEXT;
+    -- Tramo real del pasajero dentro del viaje (a pedido del usuario, 19 ago 2026: "si alguien va
+    -- de 9 de julio a pehuajo, tiene que hacer solo ese calculo la app"). Un viaje publicado (ej.
+    -- La Plata -> Pehuajó, pasando por 9 de Julio) puede tener pasajeros que solo hacen un tramo
+    -- (9 de Julio -> Pehuajó) — ese tramo se guarda acá, y el precio de ESA reserva se calcula con
+    -- la distancia real de ese tramo (server/pricing.js calcularPorCiudades), no con el precio del
+    -- viaje completo. Nombradas "tramo_..." (no "origen_ciudad"/"destino_ciudad" a secas) para no
+    -- pisar los alias que ya usan las consultas que hacen JOIN con viajes (v.origen_ciudad,
+    -- v.destino_ciudad). Nulas en reservas viejas (de antes de este cambio) — ahí se asume el
+    -- tramo completo del viaje, mismo comportamiento que siempre tuvieron.
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS tramo_origen_ciudad TEXT;
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS tramo_destino_ciudad TEXT;
+    -- Puntos de encuentro exactos elegidos con el buscador de lugares de Google (a pedido del
+    -- usuario, 19 ago 2026: "que seleccione el punto de encuentro en google maps... igual a
+    -- blablacar"). JSON, objeto con la ciudad como clave (la misma que ya se usa en origen_ciudad /
+    -- destino_ciudad / ciudades_intermedias) y como valor {nombre, direccion, lat, lng, place_id}.
+    -- Opcional por ciudad: un viaje puede tener el punto elegido para el origen y no para el
+    -- destino, por ejemplo — donde falte, la app cae al comportamiento de siempre (solo el nombre
+    -- de la ciudad / origen_direccion en texto libre). Default '{}' para viajes viejos.
+    ALTER TABLE viajes ADD COLUMN IF NOT EXISTS puntos_encuentro TEXT DEFAULT '{}';
 
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,

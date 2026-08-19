@@ -19,6 +19,7 @@ const reservas = require("../server/routes/reservas");
 const calificaciones = require("../server/routes/calificaciones");
 const admin = require("../server/routes/admin");
 const blob = require("../server/blob");
+const lugares = require("../server/routes/lugares");
 
 const router = new Router();
 
@@ -103,6 +104,11 @@ router.get("/api/config/cobro", admin.datosCobro);
 // de pago de otras personas.
 router.post("/api/upload", blob.subir);
 router.get("/api/admin/documento", adminOnly(blob.verDocumento));
+
+// Búsqueda de puntos de encuentro (estaciones de servicio, terminales, etc.) para publicar un
+// viaje — ver server/routes/lugares.js para por qué pasa siempre por el servidor y nunca expone la
+// key de Google en el navegador.
+router.get("/api/lugares/buscar", lugares.buscar);
 
 let schemaReady = null;
 function ensureSchema() {

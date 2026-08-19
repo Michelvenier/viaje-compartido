@@ -231,8 +231,14 @@ async function viewDetalle(app, params) {
 
       <div class="card" style="margin-bottom:16px">
         <div class="price-breakdown" style="border-top:none;padding-top:0">
-          <div class="row total"><span>Precio por asiento</span><span>${fmtMoney(viaje.precio_por_asiento)}</span></div>
+          <div class="row total"><span>Precio por asiento (viaje completo)</span><span>${fmtMoney(viaje.precio_por_asiento)}</span></div>
         </div>
+        ${
+          (viaje.ciudades_intermedias || []).length > 0
+            ? `<p class="muted" style="font-size:0.85rem;margin-top:4px">Este viaje pasa por ${escapeHtml((viaje.ciudades_intermedias || []).join(", "))} — si solo hacés una parte del camino, elegí tu tramo abajo y el precio se recalcula para eso.</p>`
+            : ""
+        }
+        <div id="puntos-encuentro-ver"></div>
         <div id="reserva-zona" style="margin-top:14px"></div>
       </div>
 
@@ -243,6 +249,27 @@ async function viewDetalle(app, params) {
     </div>
   `;
   wireAccordions(app);
+
+  // Puntos de encuentro elegidos por el conductor al publicar (ver js/components.js
+  // puntoEncuentroVerHtml y server/routes/lugares.js) — se muestran acá los de subida y bajada del
+  // tramo que esté seleccionado en cada momento (todo el viaje por default, o el tramo elegido más
+  // abajo si el viaje tiene ciudades intermedias). Si el conductor no eligió un punto para alguna
+  // de esas dos ciudades, simplemente no se muestra nada para esa ciudad (queda solo el nombre).
+  const puntosEncuentro = viaje.puntos_encuentro || {};
+  function renderPuntosEncuentroVer(origenCiudad, destinoCiudad) {
+    const cont = app.querySelector("#puntos-encuentro-ver");
+    if (!cont) return;
+    const origenHtml = puntosEncuentro[origenCiudad] ? puntoEncuentroVerHtml(puntosEncuentro[origenCiudad]) : "";
+    const destinoHtml = puntosEncuentro[destinoCiudad] ? puntoEncuentroVerHtml(puntosEncuentro[destinoCiudad]) : "";
+    if (!origenHtml && !destinoHtml) {
+      cont.innerHTML = "";
+      return;
+    }
+    cont.innerHTML = `
+      ${origenHtml ? `<p class="muted" style="margin:10px 0 0;font-size:0.85rem">Punto de encuentro en ${escapeHtml(origenCiudad)}:</p>${origenHtml}` : ""}
+      ${destinoHtml ? `<p class="muted" style="margin:10px 0 0;font-size:0.85rem">Punto de encuentro en ${escapeHtml(destinoCiudad)}:</p>${destinoHtml}` : ""}`;
+  }
+  renderPuntosEncuentroVer(viaje.origen_ciudad, viaje.destino_ciudad);
 
   const zona = app.querySelector("#reserva-zona");
   if (viaje.estado !== "activo" || viaje.asientos_disponibles < 1) {
@@ -256,8 +283,32 @@ async function viewDetalle(app, params) {
   } else if (user.estado_validacion !== "aprobado") {
     zona.innerHTML = `<div class="info-box">Tu perfil todavía está en revisión manual. Te avisamos por WhatsApp en menos de 24 hs.</div>`;
   } else {
+    // Camino real del viaje (a pedido del usuario, 19 ago 2026): si el conductor va, por ejemplo,
+    // de La Plata a Pehuajó pasando por 9 de Julio, un pasajero que solo hace "9 de Julio ->
+    // Pehuajó" tiene que poder reservar SOLO ese tramo — y que el precio se calcule para ese tramo,
+    // no para el viaje completo. Si el viaje no tiene ciudades intermedias, no tiene sentido
+    // mostrar el selector (el único tramo posible es el viaje completo).
+    const camino = [viaje.origen_ciudad, ...(viaje.ciudades_intermedias || []), viaje.destino_ciudad];
+    const tieneTramos = camino.length > 2;
+
     zona.innerHTML = `
       <form id="form-reserva">
+        ${
+          tieneTramos
+            ? `<div class="field-row">
+                <div class="field">
+                  <label>Subís en</label>
+                  <select name="tramo_origen"></select>
+                </div>
+                <div class="field">
+                  <label>Bajás en</label>
+                  <select name="tramo_destino"></select>
+                </div>
+              </div>
+              <small class="hint" style="display:block;margin-bottom:10px">Elegí el tramo que realmente vas a hacer — el precio se
+              calcula según la distancia real de ESE tramo, no del viaje completo.</small>`
+            : ""
+        }
         <div class="field-row">
           <div class="field">
             <label>Asientos a reservar</label>
@@ -279,14 +330,64 @@ async function viewDetalle(app, params) {
       </form>`;
 
     const selectAsientos = app.querySelector('[name="asientos_reservados"]');
+    const selectOrigen = app.querySelector('[name="tramo_origen"]');
+    const selectDestino = app.querySelector('[name="tramo_destino"]');
+
+    // Los dos selects se limitan mutuamente para que nunca se pueda armar un tramo "al revés" o
+    // fuera de la ruta real: "Subís en" solo ofrece ciudades ANTES de la bajada elegida, y "Bajás
+    // en" solo ciudades DESPUÉS de la subida elegida — así el server nunca tiene que rechazar una
+    // combinación imposible que el propio formulario ya evitó.
+    function repoblarTramos() {
+      if (!tieneTramos) return;
+      const idxDestinoActual = selectDestino.value ? camino.indexOf(selectDestino.value) : camino.length - 1;
+      const idxOrigenActual = selectOrigen.value ? camino.indexOf(selectOrigen.value) : 0;
+      selectOrigen.innerHTML = camino
+        .slice(0, Math.max(idxDestinoActual, 1))
+        .map((c, i) => `<option value="${c}" ${i === Math.min(idxOrigenActual, idxDestinoActual - 1) ? "selected" : ""}>${c}</option>`)
+        .join("");
+      const nuevoIdxOrigen = camino.indexOf(selectOrigen.value);
+      selectDestino.innerHTML = camino
+        .slice(nuevoIdxOrigen + 1)
+        .map(
+          (c, i) =>
+            `<option value="${c}" ${nuevoIdxOrigen + 1 + i === Math.max(idxDestinoActual, nuevoIdxOrigen + 1) ? "selected" : ""}>${c}</option>`
+        )
+        .join("");
+    }
+    if (tieneTramos) {
+      repoblarTramos();
+      renderPuntosEncuentroVer(selectOrigen.value, selectDestino.value);
+      selectOrigen.addEventListener("change", () => {
+        repoblarTramos();
+        renderPuntosEncuentroVer(selectOrigen.value, selectDestino.value);
+        actualizarComisionPreview();
+      });
+      selectDestino.addEventListener("change", () => {
+        repoblarTramos();
+        renderPuntosEncuentroVer(selectOrigen.value, selectDestino.value);
+        actualizarComisionPreview();
+      });
+    }
+
     async function actualizarComisionPreview() {
       const asientos = Number(selectAsientos.value) || 1;
       const cont = app.querySelector("#comision-preview");
+      const body = { asientos_reservados: asientos };
+      if (tieneTramos) {
+        body.origen_ciudad = selectOrigen.value;
+        body.destino_ciudad = selectDestino.value;
+      }
       try {
-        const desglose = await Api.post(`/api/viajes/${viaje.id}/desglose-reserva`, { asientos_reservados: asientos });
+        const desglose = await Api.post(`/api/viajes/${viaje.id}/desglose-reserva`, body);
         cont.innerHTML = `
+          ${
+            !desglose.tramoCompleto
+              ? `<p style="margin:0 0 8px"><strong>Tu tramo:</strong> ${escapeHtml(desglose.origenTramo)} → ${escapeHtml(desglose.destinoTramo)}
+                (${desglose.distanciaKmTramo} km) — precio por asiento: <strong>${fmtMoney(desglose.precioPorAsiento)}</strong></p>`
+              : ""
+          }
           <div class="price-breakdown" style="border-top:none;padding-top:0">
-            <div class="row"><span>Costo compartido del viaje (${asientos} asiento(s))</span><span>${fmtMoney(desglose.montoTotal)}</span></div>
+            <div class="row"><span>Costo compartido del tramo (${asientos} asiento(s))</span><span>${fmtMoney(desglose.montoTotal)}</span></div>
             <div class="row total"><span>Comisión de Ruta Compartida a pagar (${desglose.comisionPct}%, mín. ${fmtMoney(desglose.comisionMinima)})</span><span>${fmtMoney(desglose.comisionPlataforma)}</span></div>
           </div>
           <p class="muted" style="margin:6px 0 0">El resto (${fmtMoney(desglose.montoConductor)}) se lo transferís directamente al
@@ -302,11 +403,16 @@ async function viewDetalle(app, params) {
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
-        await Api.post("/api/reservas", {
+        const body = {
           viaje_id: viaje.id,
           pasajero_id: user.id,
           asientos_reservados: Number(fd.get("asientos_reservados")),
-        });
+        };
+        if (tieneTramos) {
+          body.origen_ciudad = fd.get("tramo_origen");
+          body.destino_ciudad = fd.get("tramo_destino");
+        }
+        await Api.post("/api/reservas", body);
         toast("¡Solicitud enviada! Te avisamos cuando el conductor responda.", "success");
         location.hash = "#/mis-viajes";
       } catch (err) {
@@ -366,6 +472,13 @@ function viewPublicar(app) {
             <input type="text" name="ciudades_intermedias" placeholder="Separadas por coma. Ej: Chascomús, Rauch">
             <small class="hint">Así tu viaje aparece en búsquedas de gente que hace solo un tramo del camino.</small>
           </div>
+
+          <div class="field">
+            <label>Puntos de encuentro (opcional)</label>
+            <small class="hint">Elegí un lugar puntual en cada ciudad del camino — igual que en BlaBlaCar — para que quien reserve sepa exactamente dónde encontrarte, no solo el nombre de la ciudad.</small>
+            <div id="puntos-encuentro-container"></div>
+          </div>
+
           <div class="field-row">
             <div class="field">
               <label>Fecha de salida</label>
@@ -424,6 +537,42 @@ function viewPublicar(app) {
     return { origen_ciudad, destino_ciudad };
   }
 
+  // Puntos de encuentro elegidos con el buscador (ver js/components.js) — vive fuera del DOM a
+  // propósito, así sobrevive cuando el contenedor se re-renderiza (cambia origen/destino/
+  // intermedias). Keyeado por nombre exacto de ciudad.
+  const puntosEncuentro = {};
+
+  function ciudadesIntermediasElegidas() {
+    return (form.querySelector('[name="ciudades_intermedias"]').value || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  // Recalcula el camino actual (origen, intermedias, destino — sin vacíos ni repetidos) y
+  // re-renderiza una tarjeta de búsqueda por cada ciudad, preservando lo ya elegido en
+  // `puntosEncuentro`. Se llama cada vez que cambia origen, destino o el texto de intermedias.
+  function renderPuntosEncuentroContainer() {
+    const cont = app.querySelector("#puntos-encuentro-container");
+    if (!cont) return;
+    const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
+    const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
+    const camino = [origen_ciudad, ...ciudadesIntermediasElegidas(), destino_ciudad].filter(Boolean);
+    const ciudadesUnicas = [...new Set(camino)];
+    if (!ciudadesUnicas.length) {
+      cont.innerHTML = `<p class="muted">Elegí origen y destino para poder marcar puntos de encuentro.</p>`;
+      return;
+    }
+    cont.innerHTML = ciudadesUnicas.map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c])).join("");
+    wirePuntosEncuentro(cont, puntosEncuentro);
+  }
+  renderPuntosEncuentroContainer();
+  ["origen_ciudad", "destino_ciudad"].forEach((n) => {
+    form.querySelectorAll(`[name="${n}"]`).forEach((el) => el.addEventListener("change", renderPuntosEncuentroContainer));
+  });
+  form.querySelector('[name="ciudades_intermedias"]').addEventListener("change", renderPuntosEncuentroContainer);
+  form.querySelector('[name="ciudades_intermedias"]').addEventListener("blur", renderPuntosEncuentroContainer);
+
   async function actualizarPreview() {
     const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
     const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
@@ -463,14 +612,24 @@ function viewPublicar(app) {
     const ciudades = ciudadesElegidas();
     if (!ciudades) return;
     const fd = new FormData(form);
+    const intermedias = (fd.get("ciudades_intermedias") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // Solo se mandan los puntos de encuentro de ciudades que siguen siendo parte del camino —
+    // así si el conductor eligió un punto para una ciudad intermedia y después la borró del campo
+    // de texto, ese punto viejo no queda colgado en el payload.
+    const caminoActual = new Set([ciudades.origen_ciudad, ...intermedias, ciudades.destino_ciudad]);
+    const puntosEncuentroAEnviar = {};
+    for (const [ciudad, punto] of Object.entries(puntosEncuentro)) {
+      if (caminoActual.has(ciudad)) puntosEncuentroAEnviar[ciudad] = punto;
+    }
     const payload = {
       conductor_id: user.id,
       origen_direccion: fd.get("origen_direccion"),
       ...ciudades,
-      ciudades_intermedias: (fd.get("ciudades_intermedias") || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      ciudades_intermedias: intermedias,
+      puntos_encuentro: puntosEncuentroAEnviar,
       fecha_salida: fd.get("fecha_salida"),
       hora_salida: fd.get("hora_salida"),
       hora_llegada_estimada: fd.get("hora_llegada_estimada") || null,
@@ -930,7 +1089,7 @@ async function viewMisViajes(app) {
         // de aparición entre ellas — se la mostramos al conductor para que sepa a quién le toca.
         let posicion = 0;
         solicitudesEl.innerHTML = `<div style="border-top:1px solid var(--border);padding-top:10px">
-          ${reservas.map((r) => renderSolicitudRow(r, r.estado === "pendiente" ? ++posicion : null)).join("")}
+          ${reservas.map((r) => renderSolicitudRow(r, r.estado === "pendiente" ? ++posicion : null, viaje)).join("")}
         </div>`;
       }
     }
@@ -974,7 +1133,13 @@ async function viewMisViajes(app) {
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
           <div>
             <div class="trip-route">${escapeHtml(r.origen_ciudad)} <span class="arrow">→</span> ${escapeHtml(r.destino_ciudad)}</div>
+            ${
+              r.tramo_origen_ciudad && (r.tramo_origen_ciudad !== r.origen_ciudad || r.tramo_destino_ciudad !== r.destino_ciudad)
+                ? `<div class="muted" style="font-size:0.85rem">🚏 Tu tramo: <strong>${escapeHtml(r.tramo_origen_ciudad)} → ${escapeHtml(r.tramo_destino_ciudad)}</strong></div>`
+                : ""
+            }
             <div class="muted">📅 ${fmtFecha(r.fecha_salida)} · 🕒 ${r.hora_salida} · 💺 ${r.asientos_reservados} asiento(s)</div>
+            ${puntosEncuentroReservaHtml(r)}
           </div>
           <div style="text-align:right">
             <span class="status-pill ${r.estado}">${r.estado}</span>
@@ -1041,11 +1206,23 @@ async function viewMisViajes(app) {
   }
 }
 
-function renderSolicitudRow(r, posicion) {
+function renderSolicitudRow(r, posicion, viaje) {
   // Orden de prioridad por reserva/hora: si hay una solicitud "pendiente" más vieja todavía sin
   // resolver para este mismo viaje, el servidor no deja aceptar esta — se lo marcamos acá para
   // que el conductor no se encuentre con el error recién al hacer clic.
   const bloqueadaPorOrden = r.estado === "pendiente" && posicion > 1;
+  // Puntos de encuentro del tramo real de ESTA reserva — el viaje (con su puntos_encuentro
+  // completo) viene del loop de arriba, no de la fila de la reserva (porViaje no trae
+  // origen_ciudad/destino_ciudad de vuelta, solo puntos_encuentro; el resto lo completamos acá).
+  const puntosEncuentroHtml = viaje
+    ? puntosEncuentroReservaHtml({
+        puntos_encuentro: viaje.puntos_encuentro,
+        origen_ciudad: viaje.origen_ciudad,
+        destino_ciudad: viaje.destino_ciudad,
+        tramo_origen_ciudad: r.tramo_origen_ciudad,
+        tramo_destino_ciudad: r.tramo_destino_ciudad,
+      })
+    : "";
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;flex-wrap:wrap;gap:8px" data-reserva-row="${r.id}">
       <div style="display:flex;align-items:center;gap:10px">
@@ -1054,7 +1231,13 @@ function renderSolicitudRow(r, posicion) {
           <strong>${escapeHtml(r.nombre)} ${escapeHtml(r.apellido)}</strong>
           ${r.estado === "pendiente" ? `<span class="badge" style="margin-left:6px">#${posicion} en la cola</span>` : ""}
           ${Number(r.no_show_count) > 0 ? `<span class="badge orange" style="margin-left:4px">⚠️ ${r.no_show_count} inasistencia(s) previa(s)</span>` : ""}
-          <div class="muted">${r.asientos_reservados} asiento(s) · costo del viaje ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
+          ${
+            r.tramo_origen_ciudad
+              ? `<div class="muted" style="font-size:0.85rem">🚏 Sube en <strong>${escapeHtml(r.tramo_origen_ciudad)}</strong>, baja en <strong>${escapeHtml(r.tramo_destino_ciudad)}</strong></div>`
+              : ""
+          }
+          <div class="muted">${r.asientos_reservados} asiento(s) · costo del tramo ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
+          ${puntosEncuentroHtml}
           ${
             r.pagado
               ? `<div class="muted" style="font-size:0.8rem">✅ Ya pagó y se confirmó la comisión de la plataforma. Te tiene que pagar <strong>${fmtMoney(r.monto_conductor)}</strong> directamente (efectivo, transferencia, etc.) al momento del viaje.</div>`

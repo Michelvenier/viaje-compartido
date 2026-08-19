@@ -4,6 +4,7 @@
 const db = require("../db");
 const pricing = require("../pricing");
 const choferes = require("../choferes");
+const corredor = require("../corredor");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
 // Cuenta corriente del conductor: acumula deuda cuando cancela un viaje que ya tenía reservas
@@ -47,6 +48,11 @@ function filaViaje(row) {
   if (!row) return row;
   const copy = boolFields(row, ["permite_mascotas", "permite_equipaje_grande", "permite_fumar"]);
   copy.ciudades_intermedias = JSON.parse(copy.ciudades_intermedias || "[]");
+  // Puntos de encuentro elegidos por el conductor en Google Maps, uno por ciudad del camino
+  // (origen, destino, cada intermedia) — objeto opcional keyeado por nombre de ciudad, ver
+  // server/routes/lugares.js y la migración en server/db.js. Si el conductor no eligió ninguno
+  // (viajes viejos, o no usó el buscador), queda {} y el frontend muestra el texto de siempre.
+  copy.puntos_encuentro = JSON.parse(copy.puntos_encuentro || "{}");
   return copy;
 }
 
@@ -121,15 +127,24 @@ async function publicar(req, res) {
   if (calculo.error) return badRequest(res, calculo.error);
 
   const id = newId("trip");
+  // Puntos de encuentro elegidos con el buscador (server/routes/lugares.js): objeto opcional
+  // keyeado por nombre de ciudad exacto (origen_ciudad, destino_ciudad, o una de
+  // ciudades_intermedias), valor {nombre, direccion, lat, lng, place_id}. Nunca se toma tal cual
+  // sin validar la forma básica — si viene algo raro (no objeto), se descarta a {} en vez de
+  // romper la publicación.
+  const puntosEncuentro =
+    body.puntos_encuentro && typeof body.puntos_encuentro === "object" && !Array.isArray(body.puntos_encuentro)
+      ? body.puntos_encuentro
+      : {};
   await db.run(
     `INSERT INTO viajes (
       id, conductor_id, origen_direccion, origen_ciudad, destino_ciudad, ciudades_intermedias,
-      fecha_salida, hora_salida, hora_llegada_estimada, distancia_km, peajes_estimados,
-      precio_nafta_usado, litros_estimados, costo_combustible, cto_total, divisor_precio,
-      precio_sugerido, precio_por_asiento, asientos_totales, asientos_disponibles,
+      puntos_encuentro, fecha_salida, hora_salida, hora_llegada_estimada, distancia_km,
+      peajes_estimados, precio_nafta_usado, litros_estimados, costo_combustible, cto_total,
+      divisor_precio, precio_sugerido, precio_por_asiento, asientos_totales, asientos_disponibles,
       permite_mascotas, permite_equipaje_grande, permite_fumar, pref_charla, pref_musica,
       estado, created_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       conductor.id,
@@ -137,6 +152,7 @@ async function publicar(req, res) {
       body.origen_ciudad,
       body.destino_ciudad,
       JSON.stringify(body.ciudades_intermedias || []),
+      JSON.stringify(puntosEncuentro),
       body.fecha_salida,
       body.hora_salida,
       body.hora_llegada_estimada || null,
@@ -165,12 +181,19 @@ async function publicar(req, res) {
   created(res, await conConductor(row));
 }
 
+// A pedido del usuario (19 ago 2026): antes solo se podía encontrar un viaje buscando exactamente
+// su origen_ciudad — un viaje "La Plata -> Pehuajó" que pasa por "9 de Julio" no aparecía si
+// alguien buscaba "Salgo de 9 de Julio", aunque el conductor sí pasa por ahí. Ahora el filtro de
+// origen también busca en ciudades_intermedias (igual que ya hacía destino), y cuando se buscan
+// origen Y destino juntos se valida en memoria (resolverTramo, mismo helper que usa la reserva
+// real) que ese tramo respete el sentido real del viaje — así no aparece, por ejemplo, un viaje que
+// en realidad va de Pehuajó a 9 de Julio como resultado de buscar "9 de Julio -> Pehuajó".
 async function buscar(req, res, params, query) {
   let sql = `SELECT * FROM viajes WHERE estado = 'activo' AND asientos_disponibles > 0`;
   const args = [];
   if (query.origen) {
-    sql += ` AND origen_ciudad ILIKE ?`;
-    args.push(`%${query.origen}%`);
+    sql += ` AND (origen_ciudad ILIKE ? OR ciudades_intermedias ILIKE ?)`;
+    args.push(`%${query.origen}%`, `%${query.origen}%`);
   }
   if (query.destino) {
     sql += ` AND (destino_ciudad ILIKE ? OR ciudades_intermedias ILIKE ?)`;
@@ -181,7 +204,10 @@ async function buscar(req, res, params, query) {
     args.push(query.fecha);
   }
   sql += ` ORDER BY fecha_salida ASC, hora_salida ASC`;
-  const rows = await db.all(sql, args);
+  let rows = await db.all(sql, args);
+  if (query.origen && query.destino) {
+    rows = rows.filter((row) => !corredor.resolverTramo(corredor.caminoDelViaje(row), query.origen, query.destino).error);
+  }
   ok(res, await Promise.all(rows.map(conConductor)));
 }
 
@@ -252,8 +278,16 @@ async function calcularVista(req, res) {
 
 // Vista previa de la comisión ANTES de confirmar la solicitud de reserva (Reglas de la Ruta 2.3:
 // el monto de la comisión tiene que verse desde el momento de reservar, no solo en la pantalla de
-// pago). Usa el mismo cálculo que se aplica de verdad al crear la reserva (pricing.calcularDesgloseReserva),
+// pago). Usa el mismo cálculo que se aplica de verdad al crear la reserva (pricing.calcularDesgloseReserva
+// y, si se pide un tramo parcial, el mismo resolverTramo/calcularPorCiudades que reservas.crear()),
 // así el número que ve el pasajero antes de solicitar es siempre el que después le va a cobrar.
+//
+// body.origen_ciudad / body.destino_ciudad son OPCIONALES: si no vienen (o coinciden con el origen
+// y destino del viaje), se usa el precio del viaje completo de siempre. Si el pasajero pide un
+// tramo parcial (ej. "9 de Julio -> Pehuajó" dentro de un viaje "La Plata -> Pehuajó"), el precio
+// se calcula de cero para ESE tramo con la misma cascada automática de cualquier viaje — nunca
+// como una fracción del precio del viaje completo (a pedido del usuario, 19 ago 2026: "tiene que
+// hacer solo ese calculo la app").
 async function desgloseReservaVista(req, res, params) {
   let body;
   try {
@@ -264,8 +298,29 @@ async function desgloseReservaVista(req, res, params) {
   const viaje = await db.get("SELECT * FROM viajes WHERE id = ?", [params.id]);
   if (!viaje) return notFound(res, "Viaje no encontrado");
   const asientos = Math.max(1, Number(body.asientos_reservados) || 1);
-  const desglose = await pricing.calcularDesgloseReserva(viaje.precio_por_asiento, asientos);
-  ok(res, desglose);
+
+  const camino = corredor.caminoDelViaje(viaje);
+  const tramo = corredor.resolverTramo(camino, body.origen_ciudad, body.destino_ciudad);
+  if (tramo.error) return badRequest(res, tramo.error);
+
+  let precioPorAsiento = viaje.precio_por_asiento;
+  let distanciaKmTramo = viaje.distancia_km;
+  if (!tramo.esCompleto) {
+    const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
+    if (calculoTramo.error) return badRequest(res, calculoTramo.error);
+    precioPorAsiento = calculoTramo.precioSugerido;
+    distanciaKmTramo = calculoTramo.distanciaKm;
+  }
+
+  const desglose = await pricing.calcularDesgloseReserva(precioPorAsiento, asientos);
+  ok(res, {
+    ...desglose,
+    precioPorAsiento,
+    distanciaKmTramo,
+    tramoCompleto: tramo.esCompleto,
+    origenTramo: tramo.origen,
+    destinoTramo: tramo.destino,
+  });
 }
 
 module.exports = { publicar, buscar, detalle, porConductor, cancelar, calcularVista, desgloseReservaVista };

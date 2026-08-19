@@ -2,14 +2,19 @@
 // para calcular automáticamente km, peajes y precio SIN que el conductor pueda tocarlos.
 //
 // Desde el 13 ago 2026 los viajes ya NO tienen que tener a La Plata como origen o destino: se
-// puede viajar entre dos ciudades intermedias del corredor (ej. Tandil ↔ Bolívar). Los pares que
-// incluyen a La Plata siguen usando la tabla de abajo (curada a mano, revisada por el admin, sin
-// costo por consulta); cualquier otro par se resuelve con la Distance Matrix API de Google Maps y
-// se cachea — ver server/maps.js y server/pricing.js (calcularPorCiudades) para el detalle.
+// puede viajar entre dos ciudades intermedias del corredor (ej. Tandil ↔ Bolívar).
+//
+// Desde el 19 ago 2026 (a pedido explícito del usuario: "Eso es para los km de las ciudades,
+// TODAS!!"), la tabla de abajo YA NO es la fuente principal de distancia para los pares que
+// incluyen a La Plata — pasó a ser un respaldo de emergencia. Ahora TODO par de ciudades (incluido
+// La Plata ↔ X) se resuelve primero con la Distance Matrix API de Google Maps (cacheada para no
+// volver a pagar la misma consulta) — ver server/pricing.js (calcularPorCiudades) para el detalle
+// completo de la cascada. La tabla de abajo solo se usa si Google Maps no responde.
 //
 // IMPORTANTE: los valores de abajo son ESTIMACIONES de distancia y peaje por ruta, no vienen de
 // un mapa real — hay que revisarlos y corregirlos desde el panel de administración (Panel de
-// administración → Distancias del corredor) antes de operar con usuarios reales.
+// administración → Distancias del corredor) si alguna vez se usan de verdad (o sea, si Google Maps
+// llegara a fallar para un par que toca La Plata).
 "use strict";
 
 const CIUDAD_BASE = "La Plata";
@@ -81,4 +86,39 @@ function validarCiudades(origenCiudad, destinoCiudad) {
   return {};
 }
 
-module.exports = { CIUDAD_BASE, CIUDADES_CORREDOR, DISTANCIAS_DEFAULT, validarCiudades };
+// Arma el camino ordenado de un viaje: [origen, ...intermedias en el orden en que el conductor las
+// cargó, destino]. A pedido del usuario (19 ago 2026): un viaje "La Plata -> Pehuajó" que pasa por
+// "9 de Julio" tiene que poder reservarse también solo para el tramo "9 de Julio -> Pehuajó" — este
+// camino es la base para saber qué tramos son válidos dentro de ese viaje (ver resolverTramo).
+// Acepta tanto un `viaje` ya parseado (ciudades_intermedias como array) como una fila cruda de la
+// base (ciudades_intermedias como el TEXT con el JSON serializado) — así sirve igual en
+// server/routes/viajes.js (antes de filaViaje) y en server/routes/reservas.js.
+function caminoDelViaje(viaje) {
+  const intermedias = Array.isArray(viaje.ciudades_intermedias)
+    ? viaje.ciudades_intermedias
+    : JSON.parse(viaje.ciudades_intermedias || "[]");
+  return [viaje.origen_ciudad, ...intermedias, viaje.destino_ciudad];
+}
+
+// Valida que un tramo pedido (origenPedido -> destinoPedido) sea parte del camino real de un viaje
+// Y respete el sentido en que viaja el conductor — no se puede reservar "al revés" (ej. un viaje
+// La Plata -> Pehuajó no puede reservarse como Pehuajó -> 9 de Julio, aunque las dos ciudades estén
+// en el camino). Si no se pide un tramo puntual (faltan origenPedido y/o destinoPedido), devuelve
+// el viaje completo — mismo comportamiento que siempre tuvo la app antes de este cambio.
+function resolverTramo(camino, origenPedido, destinoPedido) {
+  const origen = (origenPedido || camino[0] || "").trim();
+  const destino = (destinoPedido || camino[camino.length - 1] || "").trim();
+  const idxOrigen = camino.findIndex((c) => c === origen);
+  const idxDestino = camino.findIndex((c) => c === destino);
+  if (idxOrigen === -1) return { error: `"${origen}" no es parte de la ruta de este viaje.` };
+  if (idxDestino === -1) return { error: `"${destino}" no es parte de la ruta de este viaje.` };
+  if (idxOrigen >= idxDestino) {
+    return {
+      error: `Ese tramo no respeta el sentido del viaje (el conductor va de "${camino[0]}" a "${camino[camino.length - 1]}").`,
+    };
+  }
+  const esCompleto = origen === camino[0] && destino === camino[camino.length - 1];
+  return { origen, destino, esCompleto };
+}
+
+module.exports = { CIUDAD_BASE, CIUDADES_CORREDOR, DISTANCIAS_DEFAULT, validarCiudades, caminoDelViaje, resolverTramo };

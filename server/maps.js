@@ -49,4 +49,48 @@ async function distanciaKmEntreCiudades(ciudadA, ciudadB) {
   }
 }
 
-module.exports = { distanciaKmEntreCiudades };
+// Busca lugares reales (estaciones de servicio, terminales, plazas, etc.) con la Places API de
+// Google, para elegir el PUNTO DE ENCUENTRO exacto de un viaje (a pedido del usuario, 19 ago 2026:
+// "que seleccione el punto de encuentro en google maps y que le aparezca al usuario los puntos de
+// encuentro... Todo esto igual a blablacar"). Usa el mismo GOOGLE_MAPS_API_KEY que ya existe — a
+// propósito NUNCA se llama a esto desde el navegador directo a Google: el conductor busca desde
+// nuestro propio endpoint (server/routes/lugares.js), que llama acá con la key guardada en el
+// servidor. Así la key sigue siendo un secreto de servidor, nunca queda expuesta en el código del
+// navegador (ver la explicación completa en server/routes/lugares.js).
+//
+// Devuelve como máximo 5 resultados con nombre, dirección y coordenadas — o [] si no hay resultados
+// o la API no está configurada/falla (nunca inventa un lugar).
+async function buscarLugares(query) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey || !query || !query.trim()) return [];
+
+  const q = encodeURIComponent(query.trim());
+  // "region=ar" sesga los resultados hacia Argentina (Text Search no soporta restringir el país
+  // de forma estricta como sí hace la API de Geocoding/Autocomplete con "components").
+  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${q}&region=ar&language=es&key=${apiKey}`;
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error("Google Places Text Search respondió", resp.status);
+      return [];
+    }
+    const data = await resp.json();
+    if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      console.error("Google Places Text Search status:", data.status, data.error_message || "");
+      return [];
+    }
+    return (data.results || []).slice(0, 5).map((r) => ({
+      nombre: r.name,
+      direccion: r.formatted_address,
+      lat: r.geometry?.location?.lat,
+      lng: r.geometry?.location?.lng,
+      place_id: r.place_id,
+    }));
+  } catch (err) {
+    console.error("Error consultando Google Places Text Search:", err.message);
+    return [];
+  }
+}
+
+module.exports = { distanciaKmEntreCiudades, buscarLugares };

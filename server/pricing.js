@@ -55,16 +55,25 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
 
 // Calcula distancia, peajes y precio de forma 100% automática a partir de las ciudades elegidas —
 // nadie (ni el conductor) puede tocar el km ni el precio: ambos salen siempre de esta cascada y de
-// calcularPrecioSugerido(). Desde el 13 ago 2026 ya no hace falta que una de las dos ciudades sea
-// La Plata:
-//   1. Par "La Plata ↔ X": usa la tabla curada a mano (distancias_corredor) — más precisa y sin
-//      costo, se revisa desde el panel de admin.
-//   2. Cualquier otro par: primero busca en distancias_cache (ya consultado antes); si no está,
-//      llama a la Distance Matrix API de Google Maps (server/maps.js) y guarda el resultado en el
-//      cache. El peaje para estos pares se ESTIMA como km × "peaje_por_km_estimado" (config;
-//      Google Maps no informa costo de peajes) — a pedido del usuario, sin complicarlo más que eso.
-//   3. Si no hay tabla curada, no hay cache y Google Maps no está configurado (o falla), se
-//      devuelve un error claro en vez de inventar un km.
+// calcularPrecioSugerido(). Desde el 19 ago 2026, a pedido explícito del usuario ("Eso es para los
+// km de las ciudades, TODAS!!"), Google Maps es la fuente PRINCIPAL de distancia para cualquier par
+// de ciudades del corredor, incluidos los pares que tocan La Plata — antes esos pares usaban
+// siempre la tabla curada a mano y nunca consultaban a Google Maps:
+//   1. distancias_cache (Postgres): si ya se consultó antes este par (con cualquiera de las dos
+//      fuentes de abajo), se reusa sin volver a pagar/consultar. Se guarda siempre en orden
+//      alfabético, así que sirve para cualquier par, incluido La Plata ↔ X.
+//   2. Google Maps Distance Matrix API (server/maps.js): fuente principal para TODO par nuevo. El
+//      resultado se guarda en el cache de arriba para la próxima vez.
+//   3. Tabla curada a mano (distancias_corredor) — SOLO como respaldo de emergencia, y SOLO para
+//      pares que incluyen a La Plata (es la única tabla que existe): se usa nada más si Google Maps
+//      falla o no está configurado, para que la app no se quede sin poder calcular un viaje
+//      La Plata ↔ X por un problema puntual de la API. Mientras Google Maps responda, nunca se usa.
+//   4. Si no hay nada cacheado, Google Maps no está configurado (o falla) y no hay tabla curada
+//      para ese par (o el par no toca La Plata), se devuelve un error claro en vez de inventar un
+//      km.
+// El peaje SIEMPRE se estima como km × "peaje_por_km_estimado" (config) cuando el km viene de cache
+// o de Google Maps, porque ninguna de las dos fuentes informa costo real de peajes — solo cuando se
+// cae al respaldo de la tabla curada se usa el peaje que también viene cargado ahí a mano.
 async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos) {
   const validado = validarCiudades(origenCiudad, destinoCiudad);
   if (validado.error) return { error: validado.error };
@@ -72,34 +81,37 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
   const origen = origenCiudad.trim();
   const destino = destinoCiudad.trim();
 
-  let km = null;
+  let km = await getDistanciaCacheada(origen, destino);
   let peaje = null;
 
-  const esParLaPlata = origen === CIUDAD_BASE || destino === CIUDAD_BASE;
-  if (esParLaPlata) {
-    const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
-    const distancias = await getDistanciasCorredor();
-    const datos = distancias[otraCiudad];
-    if (datos) {
-      km = datos.km;
-      peaje = datos.peaje;
+  if (km == null) {
+    km = await maps.distanciaKmEntreCiudades(origen, destino);
+    if (km != null) await guardarDistanciaCache(origen, destino, km);
+  }
+
+  if (km != null) {
+    const peajePorKm = (await getConfig("peaje_por_km_estimado")) || 0;
+    peaje = round2(km * peajePorKm);
+  } else {
+    // Respaldo de emergencia: solo para pares que tocan La Plata, y solo si Google Maps no pudo
+    // resolverlo (sin key configurada, cuota agotada, o un error puntual de la API).
+    const esParLaPlata = origen === CIUDAD_BASE || destino === CIUDAD_BASE;
+    if (esParLaPlata) {
+      const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
+      const distancias = await getDistanciasCorredor();
+      const datos = distancias[otraCiudad];
+      if (datos) {
+        km = datos.km;
+        peaje = datos.peaje;
+      }
     }
   }
 
   if (km == null) {
-    km = await getDistanciaCacheada(origen, destino);
-    if (km == null) {
-      km = await maps.distanciaKmEntreCiudades(origen, destino);
-      if (km != null) await guardarDistanciaCache(origen, destino, km);
-    }
-    if (km == null) {
-      const motivo = process.env.GOOGLE_MAPS_API_KEY
-        ? "No pudimos calcular la distancia en este momento — probá de nuevo en un rato."
-        : "Esta combinación de ciudades todavía no tiene la integración con Google Maps configurada.";
-      return { error: `No tenemos la distancia entre "${origen}" y "${destino}". ${motivo}` };
-    }
-    const peajePorKm = (await getConfig("peaje_por_km_estimado")) || 0;
-    peaje = round2(km * peajePorKm);
+    const motivo = process.env.GOOGLE_MAPS_API_KEY
+      ? "No pudimos calcular la distancia en este momento — probá de nuevo en un rato."
+      : "Esta combinación de ciudades todavía no tiene la integración con Google Maps configurada.";
+    return { error: `No tenemos la distancia entre "${origen}" y "${destino}". ${motivo}` };
   }
 
   const calculo = await calcularPrecioSugerido(km, peaje, asientosOfrecidos);

@@ -121,6 +121,148 @@ function wireChips(root = document) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// PUNTO DE ENCUENTRO — buscador de lugares reales (Google Places, vía nuestro propio endpoint
+// server/routes/lugares.js, para que la key de Google nunca llegue al navegador) + mapa de solo
+// lectura embebido SIN key (parámetro "output=embed"), a pedido del usuario (19 ago 2026): "que
+// seleccione el punto de encuentro en google maps y que le aparezca al usuario los puntos de
+// encuentro... Todo esto igual a blablacar y que se seleccione y vea todo en google map".
+//
+// Por qué no hay un mapa "de verdad" con pin arrastrable: eso requiere la API de JavaScript de
+// Google Maps, que sí necesita una key visible en el navegador — el usuario pidió explícitamente
+// evitar exponer una key ahí. Este enfoque (buscar por texto en el servidor + mostrar el resultado
+// en un iframe embebido de solo lectura) da la misma experiencia de elegir y ver el lugar en
+// Google Maps, sin ese riesgo.
+// ---------------------------------------------------------------------------
+
+// Iframe de Google Maps sin key, centrado en un lat/lng puntual. Funciona con cualquier cuenta
+// (no hace falta facturación ni API habilitada) porque usa la versión pública de maps.google.com,
+// no la API — por eso es de solo lectura (no se puede arrastrar el pin ni buscar adentro).
+function mapaEmbedHtml(lat, lng, alto = 180) {
+  if (lat === undefined || lat === null || lng === undefined || lng === null) return "";
+  return `<iframe src="https://www.google.com/maps?q=${encodeURIComponent(lat)},${encodeURIComponent(lng)}&output=embed"
+    style="width:100%;height:${alto}px;border:0;border-radius:8px;margin-top:6px" loading="lazy"
+    referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+}
+
+// Tarjeta de "punto de encuentro" de SOLO LECTURA — para mostrarle al pasajero (o al conductor
+// revisando sus solicitudes) el lugar exacto que ya se eligió. `punto` es
+// {nombre, direccion, lat, lng, place_id} (una entrada de viaje.puntos_encuentro) o null/undefined.
+function puntoEncuentroVerHtml(punto) {
+  if (!punto || !punto.nombre) return "";
+  return `<div class="punto-encuentro-ver" style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:8px">
+    <div style="font-weight:600">📍 ${escapeHtml(punto.nombre)}</div>
+    ${punto.direccion ? `<div class="muted" style="font-size:.9em">${escapeHtml(punto.direccion)}</div>` : ""}
+    ${mapaEmbedHtml(punto.lat, punto.lng)}
+  </div>`;
+}
+
+// Muestra los puntos de encuentro (subida y bajada) de UNA reserva ya cargada — usa
+// r.puntos_encuentro (el objeto completo del viaje, keyeado por ciudad, ver server/routes/
+// reservas.js porPasajero/porViaje) y el tramo real de esa reserva (tramo_origen_ciudad/
+// tramo_destino_ciudad si reservó solo una parte del camino, si no origen_ciudad/destino_ciudad
+// del viaje completo). Si el conductor no cargó un punto para esas ciudades, no se muestra nada.
+function puntosEncuentroReservaHtml(r) {
+  const puntos = r.puntos_encuentro || {};
+  const origenCiudad = r.tramo_origen_ciudad || r.origen_ciudad;
+  const destinoCiudad = r.tramo_destino_ciudad || r.destino_ciudad;
+  const origenHtml = puntos[origenCiudad] ? puntoEncuentroVerHtml(puntos[origenCiudad]) : "";
+  const destinoHtml = puntos[destinoCiudad] ? puntoEncuentroVerHtml(puntos[destinoCiudad]) : "";
+  if (!origenHtml && !destinoHtml) return "";
+  return `
+    ${origenHtml ? `<p class="muted" style="margin:8px 0 0;font-size:0.8rem">📍 Punto de encuentro en ${escapeHtml(origenCiudad)}:</p>${origenHtml}` : ""}
+    ${destinoHtml ? `<p class="muted" style="margin:8px 0 0;font-size:0.8rem">📍 Punto de encuentro en ${escapeHtml(destinoCiudad)}:</p>${destinoHtml}` : ""}`;
+}
+
+// Tarjeta EDITABLE de "punto de encuentro" (para cuando el conductor está publicando un viaje):
+// buscador de texto + lista de resultados + previsualización del lugar elegido, para una ciudad
+// puntual del camino (origen, destino, o una de las intermedias). `ciudad` es la clave exacta que
+// después se usa en viaje.puntos_encuentro; `seleccionado` es el punto ya elegido para esa ciudad
+// en esta sesión de edición, si hay (se preserva al re-renderizar el contenedor completo, ver
+// js/views.js viewPublicar → renderPuntosEncuentroContainer).
+function puntoEncuentroEditarHtml(ciudad, seleccionado) {
+  return `<div class="punto-encuentro-editar" data-ciudad="${escapeHtml(ciudad)}" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
+    <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">(opcional)</span></label>
+    <small class="hint">Buscá un lugar puntual — una estación de servicio, terminal, plaza, entrada a la ciudad, etc. — igual que en BlaBlaCar. Si no elegís nada, queda solo el nombre de la ciudad.</small>
+    <div class="field-row" style="margin-top:6px">
+      <input type="text" class="pe-buscar-input" placeholder="Ej: YPF Ruta 5, ${escapeHtml(ciudad)}" style="flex:1">
+      <button type="button" class="btn btn-outline pe-buscar-btn">Buscar</button>
+    </div>
+    <div class="pe-resultados"></div>
+    <div class="pe-seleccionado">${
+      seleccionado
+        ? `${puntoEncuentroVerHtml(seleccionado)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
+        : ""
+    }</div>
+  </div>`;
+}
+
+// Conecta el buscador de cada tarjeta puntoEncuentroEditarHtml() dentro de `root` con el endpoint
+// /api/lugares/buscar, y guarda la selección en el objeto `puntosEncuentro` (mutado in-place,
+// keyeado por nombre de ciudad) para que el caller lo lea al armar el payload de publicar().
+function wirePuntosEncuentro(root, puntosEncuentro) {
+  root.querySelectorAll(".punto-encuentro-editar").forEach((card) => {
+    const ciudad = card.getAttribute("data-ciudad");
+    const input = card.querySelector(".pe-buscar-input");
+    const btn = card.querySelector(".pe-buscar-btn");
+    const resultados = card.querySelector(".pe-resultados");
+    const seleccionadoDiv = card.querySelector(".pe-seleccionado");
+
+    function mostrarSeleccionado(punto) {
+      seleccionadoDiv.innerHTML = punto
+        ? `${puntoEncuentroVerHtml(punto)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
+        : "";
+      const quitarBtn = seleccionadoDiv.querySelector(".pe-quitar-btn");
+      if (quitarBtn) {
+        quitarBtn.addEventListener("click", () => {
+          delete puntosEncuentro[ciudad];
+          mostrarSeleccionado(null);
+        });
+      }
+    }
+    mostrarSeleccionado(puntosEncuentro[ciudad]);
+
+    async function buscar() {
+      const q = input.value.trim();
+      if (!q) return;
+      resultados.innerHTML = `<p class="muted">Buscando...</p>`;
+      try {
+        const { resultados: lugares } = await Api.get(`/api/lugares/buscar?q=${encodeURIComponent(q)}`);
+        if (!lugares.length) {
+          resultados.innerHTML = `<p class="muted">No encontramos nada con ese nombre. Probá con otra búsqueda (ej. agregá la ciudad o la ruta).</p>`;
+          return;
+        }
+        resultados.innerHTML = lugares
+          .map(
+            (l, i) => `<div class="pe-resultado-item" data-idx="${i}" style="padding:8px;border:1px solid var(--border);border-radius:6px;margin-top:4px;cursor:pointer">
+              <div style="font-weight:600">${escapeHtml(l.nombre)}</div>
+              <div class="muted" style="font-size:.9em">${escapeHtml(l.direccion || "")}</div>
+            </div>`
+          )
+          .join("");
+        resultados.querySelectorAll(".pe-resultado-item").forEach((el) => {
+          el.addEventListener("click", () => {
+            const punto = lugares[Number(el.getAttribute("data-idx"))];
+            puntosEncuentro[ciudad] = punto;
+            mostrarSeleccionado(punto);
+            resultados.innerHTML = "";
+            input.value = "";
+          });
+        });
+      } catch (err) {
+        resultados.innerHTML = `<p style="color:var(--danger)">${escapeHtml(err.message)}</p>`;
+      }
+    }
+    btn.addEventListener("click", buscar);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        buscar();
+      }
+    });
+  });
+}
+
 function renderUploadField(name, label, hint) {
   return `
     <div class="field">
