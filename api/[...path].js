@@ -77,6 +77,8 @@ router.get("/api/admin/pendientes", adminOnly(admin.pendientes));
 router.get("/api/admin/usuarios", adminOnly(admin.listarUsuarios));
 router.patch("/api/admin/validar/:id", adminOnly(admin.validar));
 router.post("/api/admin/usuarios/:id/resetear-password", adminOnly(admin.resetearPassword));
+router.get("/api/admin/choferes", adminOnly(admin.choferesStats));
+router.patch("/api/admin/choferes/:id/reactivar", adminOnly(admin.reactivarChofer));
 router.get("/api/admin/config", adminOnly(admin.verConfig));
 router.patch("/api/admin/config", adminOnly(admin.actualizarConfig));
 router.get("/api/admin/estadisticas", adminOnly(admin.estadisticas));
@@ -84,6 +86,8 @@ router.get("/api/admin/reembolsos-pendientes", adminOnly(admin.reembolsosPendien
 router.patch("/api/admin/reembolsos/:id/marcar-reembolsado", adminOnly(admin.marcarReembolsado));
 router.get("/api/admin/cuenta-corriente-pendientes", adminOnly(admin.cuentaCorrientePendientes));
 router.patch("/api/admin/cuenta-corriente/:id/confirmar", adminOnly(admin.confirmarPagoCuenta));
+router.get("/api/admin/pagos-pendientes", adminOnly(admin.pagosPendientes));
+router.patch("/api/admin/reservas/:id/confirmar-pago", adminOnly(admin.confirmarPagoReserva));
 router.get("/api/admin/seed", admin.seed);
 router.post("/api/admin/configurar-admin", admin.configurarAdmin);
 

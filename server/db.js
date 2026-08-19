@@ -194,6 +194,20 @@ async function initSchema() {
     -- reembolsar), y se le acredita cuando el admin confirma que pagó esa deuda a mano. Con más de
     -- $20.000 de saldo deudor no puede publicar viajes nuevos — ver server/routes/viajes.js.
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS saldo_deudor NUMERIC DEFAULT 0;
+    -- Suspensión de conductores por cancelar viajes seguidos (a pedido del usuario, 14 ago 2026): se
+    -- calcula en vivo cuántos de los viajes MÁS RECIENTES de un conductor fueron cancelados sin
+    -- interrupción (ver server/choferes.js) y, al llegar al umbral configurado, se lo suspende acá —
+    -- bloquea publicar viajes nuevos hasta que el admin lo reactive a mano desde el panel.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS suspendido INTEGER DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS suspendido_motivo TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS suspendido_at TEXT;
+    -- Pago de la comisión con comprobante + confirmación del admin (a pedido del usuario, 19 ago
+    -- 2026): el pasajero ya no queda "pagado" apenas hace clic — declara el pago adjuntando un
+    -- comprobante (queda acá, igual que movimientos_cuenta.comprobante: por ahora solo el nombre
+    -- del archivo) y "pagado" pasa a 1 recién cuando el admin lo confirma desde el panel. Mientras
+    -- una reserva aceptada no está pagada, es "deuda" del pasajero — ver server/routes/reservas.js
+    -- crear() (bloquea reservas nuevas) y server/routes/admin.js (cola de confirmación).
+    ALTER TABLE reservas ADD COLUMN IF NOT EXISTS comprobante_pago TEXT;
 
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,
@@ -251,6 +265,12 @@ async function initSchema() {
     // estima como km × este valor. Sacado del promedio aproximado de la tabla curada de arriba
     // (ronda entre $8 y $12 por km según la ruta). Editable desde el panel de admin.
     ["peaje_por_km_estimado", "9"],
+    // Cancelaciones consecutivas de un conductor (viajes publicados que canceló uno atrás del otro,
+    // sin ninguno completado/activo en el medio): a partir de este número se le muestra una alerta
+    // al admin en el panel; al llegar al de suspensión, se lo suspende automáticamente (no puede
+    // publicar viajes nuevos hasta que el admin lo reactive a mano). Editable desde el panel admin.
+    ["alerta_cancelaciones_consecutivas", "2"],
+    ["suspension_cancelaciones_consecutivas", "3"],
   ];
   for (const [clave, valor] of defaults) {
     await run(`INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO NOTHING`, [clave, valor]);

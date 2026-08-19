@@ -6,6 +6,7 @@ const db = require("../db");
 const { ok, badRequest, notFound, forbidden, readBody, usuarioPublico, boolFields, newId, nowIso, hashPassword } = require("../helpers");
 const { DISTANCIAS_DEFAULT } = require("../corredor");
 const email = require("../email");
+const choferes = require("../choferes");
 
 async function pendientes(req, res) {
   const rows = await db.all("SELECT * FROM usuarios WHERE estado_validacion = 'pendiente' ORDER BY created_at ASC");
@@ -15,6 +16,40 @@ async function pendientes(req, res) {
 async function listarUsuarios(req, res) {
   const rows = await db.all("SELECT * FROM usuarios ORDER BY created_at DESC");
   ok(res, rows.map(usuarioPublico));
+}
+
+// "Base de datos de choferes" pedida por el usuario (14 ago 2026): cuánto publican, cuánto
+// cancelan, y las cancelaciones seguidas actuales (ver server/choferes.js) — para poder ver de un
+// vistazo a quién hay que mirar de cerca, sin esperar a que llegue a suspenderse solo.
+async function choferesStats(req, res) {
+  const conductores = await db.all(
+    `SELECT id, nombre, apellido, email, telefono, estado_validacion, rating_promedio, rating_count,
+            suspendido, suspendido_motivo, suspendido_at
+     FROM usuarios WHERE rol = 'conductor' ORDER BY nombre ASC, apellido ASC`
+  );
+  const resultado = [];
+  for (const c of conductores) {
+    const totales = await db.get(
+      `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE estado = 'cancelado') AS cancelados
+       FROM viajes WHERE conductor_id = ?`,
+      [c.id]
+    );
+    const consecutivas = await choferes.contarCancelacionesConsecutivas(c.id);
+    resultado.push({
+      ...c,
+      viajesPublicados: Number(totales.total),
+      viajesCancelados: Number(totales.cancelados),
+      cancelacionesConsecutivas: consecutivas,
+    });
+  }
+  ok(res, resultado);
+}
+
+async function reactivarChofer(req, res, params) {
+  const usuario = await db.get("SELECT id, nombre, apellido FROM usuarios WHERE id = ? AND rol = 'conductor'", [params.id]);
+  if (!usuario) return notFound(res, "Conductor no encontrado");
+  await db.run("UPDATE usuarios SET suspendido = 0, suspendido_motivo = NULL, suspendido_at = NULL WHERE id = ?", [params.id]);
+  ok(res, { mensaje: `${usuario.nombre} ${usuario.apellido} fue reactivado — ya puede volver a publicar viajes.` });
 }
 
 // El admin le genera una contraseña temporal random a cualquier usuario (esto también destraba el
@@ -105,6 +140,8 @@ async function actualizarConfig(req, res) {
     "penalizacion_cancelacion_mas24hs",
     "tope_saldo_deudor",
     "distancias_corredor",
+    "alerta_cancelaciones_consecutivas",
+    "suspension_cancelaciones_consecutivas",
   ];
   for (const clave of permitidas) {
     if (!(clave in body)) continue;
@@ -200,6 +237,39 @@ async function confirmarPagoCuenta(req, res, params) {
   ok(res, { mensaje: "Pago confirmado y descontado de la cuenta corriente.", saldoDeudor: Number(actualizado.saldo_deudor || 0) });
 }
 
+// Cola de pagos de COMISIÓN (no confundir con la cuenta corriente de los conductores, que es otra
+// deuda) que un pasajero declaró subiendo un comprobante y todavía no confirmó el admin — mismo
+// patrón que cuentaCorrientePendientes. Mientras no se confirma, la reserva sigue contando como
+// "deuda" del pasajero y le bloquea reservar viajes nuevos (ver reservas.js crear()).
+async function pagosPendientes(req, res) {
+  const rows = await db.all(
+    `SELECT r.id, r.comision_plataforma, r.monto_conductor, r.comprobante_pago, r.actualizado_at,
+            v.origen_ciudad, v.destino_ciudad, v.fecha_salida,
+            p.id AS pasajero_id, p.nombre AS pasajero_nombre, p.apellido AS pasajero_apellido, p.email AS pasajero_email,
+            c.nombre AS conductor_nombre, c.apellido AS conductor_apellido
+     FROM reservas r
+     JOIN viajes v ON v.id = r.viaje_id
+     JOIN usuarios p ON p.id = r.pasajero_id
+     JOIN usuarios c ON c.id = v.conductor_id
+     WHERE r.comprobante_pago IS NOT NULL AND r.pagado = 0
+     ORDER BY r.actualizado_at ASC`
+  );
+  ok(res, rows);
+}
+
+// El admin confirma que efectivamente recibió el pago de la comisión declarado por el pasajero —
+// recién acá "pagado" pasa a 1 (nunca antes, con solo el comprobante subido). Esto desbloquea al
+// pasajero para reservar otro viaje (ver reservas.js crear()) y habilita que el conductor pueda
+// reportar la asistencia (ver reservas.js reportarAsistencia()).
+async function confirmarPagoReserva(req, res, params) {
+  const reserva = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
+  if (!reserva) return notFound(res, "Reserva no encontrada");
+  if (!reserva.comprobante_pago) return badRequest(res, "Esta reserva todavía no tiene un comprobante de pago declarado.");
+  if (reserva.pagado) return badRequest(res, "Esta reserva ya estaba confirmada como pagada.");
+  await db.run("UPDATE reservas SET pagado = 1, actualizado_at = ? WHERE id = ?", [nowIso(), params.id]);
+  ok(res, { mensaje: "Pago de la comisión confirmado." });
+}
+
 // Endpoint protegido de una sola vez para inicializar el esquema y cargar datos de ejemplo
 // en la base Postgres recién provisionada (no se puede correr `node data/seed.js` local
 // porque la base vive en la nube). Requiere la variable de entorno SEED_SECRET.
@@ -260,6 +330,8 @@ async function configurarAdmin(req, res) {
 module.exports = {
   pendientes,
   listarUsuarios,
+  choferesStats,
+  reactivarChofer,
   validar,
   resetearPassword,
   verConfig,
@@ -269,6 +341,8 @@ module.exports = {
   marcarReembolsado,
   cuentaCorrientePendientes,
   confirmarPagoCuenta,
+  pagosPendientes,
+  confirmarPagoReserva,
   seed,
   configurarAdmin,
 };

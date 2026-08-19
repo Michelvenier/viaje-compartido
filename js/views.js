@@ -1004,7 +1004,9 @@ async function viewMisViajes(app) {
         ${
           r.pagado
             ? `<div class="info-box" style="margin-top:10px">Todavía le debés <strong>${fmtMoney(r.monto_conductor)}</strong> a ${escapeHtml(r.conductor_nombre || "el conductor")} ${escapeHtml(r.conductor_apellido || "")} — coordinen el medio de pago (efectivo, transferencia, etc.) directamente al momento de viajar.</div>`
-            : ""
+            : r.comprobante_pago
+              ? `<div class="info-box" style="margin-top:10px">⏳ Recibimos tu comprobante del pago de la comisión, está pendiente de que el equipo de Ruta Compartida lo confirme. No podés reservar otro viaje hasta que se confirme.</div>`
+              : ""
         }
         ${
           r.estado === "aceptada" && r.pagado
@@ -1017,7 +1019,7 @@ async function viewMisViajes(app) {
             : ""
         }
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          ${r.estado === "aceptada" && !r.pagado ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar comisión ahora</a>` : ""}
+          ${r.estado === "aceptada" && !r.pagado && !r.comprobante_pago ? `<a href="#/reserva/${r.id}/pagar" class="btn btn-primary btn-sm">Pagar comisión ahora</a>` : ""}
           ${["pendiente", "aceptada"].includes(r.estado) ? `<button class="btn btn-outline danger btn-sm" data-cancelar-reserva="${r.id}" data-fecha-salida="${r.fecha_salida}" data-hora-salida="${r.hora_salida}" data-pagado="${r.pagado ? "1" : "0"}">Cancelar reserva</button>` : ""}
           ${r.estado === "completada" && r.asistio === true ? `<a href="#/calificar/${r.id}" class="btn btn-outline btn-sm">Calificar viaje</a>` : ""}
         </div>
@@ -1055,10 +1057,12 @@ function renderSolicitudRow(r, posicion) {
           <div class="muted">${r.asientos_reservados} asiento(s) · costo del viaje ${fmtMoney(r.monto_total)} ${r.rating_count ? `· ★ ${r.rating_promedio}` : ""}</div>
           ${
             r.pagado
-              ? `<div class="muted" style="font-size:0.8rem">✅ Ya pagó la comisión de la plataforma. Te tiene que transferir <strong>${fmtMoney(r.monto_conductor)}</strong> directamente a tu alias al momento del viaje.</div>`
-              : r.estado === "aceptada"
-                ? `<div class="muted" style="font-size:0.8rem">Todavía no pagó la comisión de la plataforma.</div>`
-                : ""
+              ? `<div class="muted" style="font-size:0.8rem">✅ Ya pagó y se confirmó la comisión de la plataforma. Te tiene que pagar <strong>${fmtMoney(r.monto_conductor)}</strong> directamente (efectivo, transferencia, etc.) al momento del viaje.</div>`
+              : r.comprobante_pago
+                ? `<div class="muted" style="font-size:0.8rem">⏳ Subió el comprobante de la comisión, esperando que el equipo de Ruta Compartida lo confirme.</div>`
+                : r.estado === "aceptada"
+                  ? `<div class="muted" style="font-size:0.8rem">Todavía no pagó la comisión de la plataforma.</div>`
+                  : ""
           }
           ${
             r.estado === "completada" && r.asistio === false
@@ -1141,7 +1145,9 @@ function wireSolicitudes(app) {
 }
 
 // ---------------------------------------------------------------------------
-// PAGAR (simulado)
+// PAGAR — el pasajero transfiere la comisión y declara el pago con comprobante; el admin lo
+// confirma desde el panel (ver server/routes/reservas.js pagar() y server/routes/admin.js
+// confirmarPagoReserva). Mismo patrón que la cuenta corriente de los conductores.
 // ---------------------------------------------------------------------------
 async function viewPagar(app, params) {
   app.innerHTML = `<div class="container-narrow"><p class="muted">Cargando reserva…</p></div>`;
@@ -1150,6 +1156,14 @@ async function viewPagar(app, params) {
     reserva = await Api.get(`/api/reservas/${params.id}`);
   } catch (err) {
     app.innerHTML = `<div class="container-narrow"><div class="error-box">${escapeHtml(err.message)}</div></div>`;
+    return;
+  }
+  if (reserva.pagado) {
+    app.innerHTML = `<div class="container-narrow"><div class="card"><h2>Confirmar pago</h2><p class="muted">Esta reserva ya está pagada y confirmada.</p><a href="#/mis-viajes" class="btn btn-outline">Volver a Mis reservas</a></div></div>`;
+    return;
+  }
+  if (reserva.comprobante_pago) {
+    app.innerHTML = `<div class="container-narrow"><div class="card"><h2>Confirmar pago</h2><p class="muted">Ya subiste el comprobante de esta reserva — está esperando que el equipo de Ruta Compartida lo confirme.</p><a href="#/mis-viajes" class="btn btn-outline">Volver a Mis reservas</a></div></div>`;
     return;
   }
   app.innerHTML = `
@@ -1165,18 +1179,28 @@ async function viewPagar(app, params) {
         </div>
         <div class="info-box" style="margin-top:14px">
           Ruta Compartida solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
-          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo transferís o pagás vos directamente al conductor
+          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo pagás vos directamente al conductor
           ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""},
           coordinando el medio de pago entre ustedes al momento de viajar.
         </div>
-        <button class="btn btn-primary btn-block" id="btn-pagar" style="margin-top:16px">💳 Pagar comisión de ${fmtMoney(reserva.comision_plataforma)} (simulado)</button>
-        <p class="muted" style="margin-top:10px;text-align:center">Este es un pago simulado del prototipo — en producción se integraría un medio de pago real para cobrar solo la comisión. Recordá transferirle al conductor su parte por separado.</p>
+        <form id="form-pagar-comision" style="margin-top:16px">
+          <div class="field">
+            <label>Transferí ${fmtMoney(reserva.comision_plataforma)} al alias/CBU de Ruta Compartida (te lo pasamos por WhatsApp) y subí el comprobante acá</label>
+            ${renderUploadField("comprobante", "Comprobante de la transferencia")}
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:8px">Ya transferí — informar pago</button>
+        </form>
+        <p class="muted" style="margin-top:10px;text-align:center">Lo confirmamos en cuanto lo revisemos. Mientras tanto no vas a poder reservar otro viaje.</p>
       </div>
     </div>`;
-  app.querySelector("#btn-pagar").addEventListener("click", async () => {
+  wireUploads(app);
+  app.querySelector("#form-pagar-comision").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const comprobante = app.querySelector('[data-upload-hidden="comprobante"]').value;
+    if (!comprobante) return toast("Subí el comprobante de la transferencia.", "error");
     try {
-      await Api.post(`/api/reservas/${reserva.id}/pagar`);
-      toast("¡Pago confirmado! Buen viaje 🚗", "success");
+      const resp = await Api.post(`/api/reservas/${reserva.id}/pagar`, { comprobante });
+      toast(resp.mensaje || "Pago informado", "success");
       location.hash = "#/mis-viajes";
     } catch (err) {
       toast(err.message, "error");
@@ -1324,15 +1348,17 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios;
+  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes;
   try {
-    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios] = await Promise.all([
+    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes] = await Promise.all([
       Api.get("/api/admin/pendientes"),
       Api.get("/api/admin/config"),
       Api.get("/api/admin/estadisticas"),
       Api.get("/api/admin/reembolsos-pendientes"),
       Api.get("/api/admin/cuenta-corriente-pendientes"),
       Api.get("/api/admin/usuarios"),
+      Api.get("/api/admin/choferes"),
+      Api.get("/api/admin/pagos-pendientes"),
     ]);
   } catch (e) {
     if (e.status === 403) {
@@ -1366,6 +1392,31 @@ async function viewAdmin(app) {
           <div class="info-box"><strong>${stats.noShows}</strong><br><span class="muted">inasistencias reportadas (total)</span></div>
           <div class="info-box"><strong>${stats.reembolsosPendientesCount} · ${fmtMoney(stats.reembolsosPendientesMonto)}</strong><br><span class="muted">reembolsos manuales pendientes</span></div>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3>Pagos de comisión — por confirmar (${pagosPendientes.length})</h3>
+        <p class="muted">Pasajeros que declararon haber transferido la comisión y subieron un comprobante. Ojo: por ahora el
+        "comprobante" es solo el nombre del archivo que subió, no la foto en sí — pedile que te la mande por WhatsApp si necesitás
+        verla antes de confirmar. Mientras no confirmes, el pasajero queda bloqueado para reservar otro viaje.</p>
+        ${
+          pagosPendientes.length === 0
+            ? `<p class="muted">No hay pagos de comisión pendientes de confirmar. 🎉</p>`
+            : `<table class="admin-table"><thead><tr><th>Pasajero</th><th>Viaje</th><th>Comisión</th><th>Le debe al conductor</th><th>Comprobante</th><th>Acción</th></tr></thead><tbody>
+              ${pagosPendientes
+                .map(
+                  (r) => `<tr>
+                <td>${escapeHtml(r.pasajero_nombre)} ${escapeHtml(r.pasajero_apellido)}<br><span class="muted" style="font-size:0.78rem">${escapeHtml(r.pasajero_email || "")}</span></td>
+                <td>${escapeHtml(r.origen_ciudad)} → ${escapeHtml(r.destino_ciudad)}<br><span class="muted" style="font-size:0.78rem">${fmtFecha(r.fecha_salida)} · con ${escapeHtml(r.conductor_nombre)} ${escapeHtml(r.conductor_apellido)}</span></td>
+                <td>${fmtMoney(r.comision_plataforma)}</td>
+                <td>${fmtMoney(r.monto_conductor)}</td>
+                <td class="muted" style="font-size:0.78rem">${escapeHtml(r.comprobante_pago || "-")}</td>
+                <td><button class="btn btn-teal btn-sm" data-confirmar-pago-reserva="${r.id}">Confirmar recibido</button></td>
+              </tr>`
+                )
+                .join("")}
+            </tbody></table>`
+        }
       </div>
 
       <div class="card" style="margin-bottom:20px">
@@ -1453,6 +1504,45 @@ async function viewAdmin(app) {
       </div>
 
       <div class="card" style="margin-bottom:20px">
+        <h3>Choferes — cancelaciones y suspensiones (${choferes.length})</h3>
+        <p class="muted">Viajes publicados, cancelados, y cuántas cancelaciones seguidas lleva cada conductor ahora mismo (se corta
+        apenas publica un viaje que no cancela). A partir de <strong>${config.alerta_cancelaciones_consecutivas}</strong> seguidas se
+        marca con ⚠️; al llegar a <strong>${config.suspension_cancelaciones_consecutivas}</strong> se suspende solo — no puede publicar
+        viajes nuevos hasta que lo reactivés acá. Esos dos números son configurables en "Valores de referencia" más abajo.</p>
+        <table class="admin-table">
+          <thead><tr><th>Conductor</th><th>Valoración</th><th>Publicados</th><th>Cancelados</th><th>Seguidos ahora</th><th>Estado</th><th>Acción</th></tr></thead>
+          <tbody>
+            ${
+              choferes.length === 0
+                ? ""
+                : choferes
+                    .map((c) => {
+                      const alerta = c.cancelacionesConsecutivas >= Number(config.alerta_cancelaciones_consecutivas);
+                      const seguidosTxt = alerta
+                        ? `<span style="color:#b00020;font-weight:600">⚠️ ${c.cancelacionesConsecutivas}</span>`
+                        : c.cancelacionesConsecutivas;
+                      const valoracion = Number(c.rating_count) > 0 ? `★ ${c.rating_promedio} (${c.rating_count})` : '<span class="muted">-</span>';
+                      return `<tr>
+                <td>${escapeHtml(c.nombre)} ${escapeHtml(c.apellido)}<br><span class="muted" style="font-size:0.78rem">${escapeHtml(c.email)}</span></td>
+                <td>${valoracion}</td>
+                <td>${c.viajesPublicados}</td>
+                <td>${c.viajesCancelados}</td>
+                <td>${seguidosTxt}</td>
+                <td>${
+                  c.suspendido
+                    ? `<span style="color:#b00020;font-weight:600">🚫 Suspendido</span><br><span class="muted" style="font-size:0.78rem">${escapeHtml(c.suspendido_motivo || "")}</span>`
+                    : '<span class="muted">Activo</span>'
+                }</td>
+                <td>${c.suspendido ? `<button class="btn btn-teal btn-sm" data-reactivar-chofer="${c.id}">Reactivar</button>` : ""}</td>
+              </tr>`;
+                    })
+                    .join("")
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
         <h3>Todos los usuarios (${usuarios.length})</h3>
         <p class="muted">Todavía no hay un "olvidé mi contraseña" self-service por mail (Resend necesitaría un dominio propio
         verificado para poder mandarle a cualquier usuario) — por ahora la vía es esta: le restablecés la contraseña acá y se le
@@ -1503,6 +1593,8 @@ async function viewAdmin(app) {
           <div class="field"><label>Penalización cancelación (menos de 24 hs, $)</label><input type="number" name="penalizacion_cancelacion_menos24hs" value="${config.penalizacion_cancelacion_menos24hs}"></div>
           <div class="field"><label>Penalización cancelación (24 hs o más, $)</label><input type="number" name="penalizacion_cancelacion_mas24hs" value="${config.penalizacion_cancelacion_mas24hs}"></div>
           <div class="field"><label>Tope de deuda para bloquear publicar ($)</label><input type="number" name="tope_saldo_deudor" value="${config.tope_saldo_deudor}"></div>
+          <div class="field"><label>Alerta a partir de N cancelaciones seguidas</label><input type="number" min="1" name="alerta_cancelaciones_consecutivas" value="${config.alerta_cancelaciones_consecutivas}"></div>
+          <div class="field"><label>Suspender a partir de N cancelaciones seguidas</label><input type="number" min="1" name="suspension_cancelaciones_consecutivas" value="${config.suspension_cancelaciones_consecutivas}"></div>
           <div class="field" style="grid-column:1/-1"><button class="btn btn-primary" type="submit">Guardar valores</button></div>
         </form>
       </div>
@@ -1531,6 +1623,18 @@ async function viewAdmin(app) {
       </div>
     </div>`;
 
+  app.querySelectorAll("[data-reactivar-chofer]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Reactivar a este conductor? Va a poder volver a publicar viajes.")) return;
+      try {
+        const resultado = await Api.patch(`/api/admin/choferes/${btn.dataset.reactivarChofer}/reactivar`);
+        toast(resultado.mensaje, "success");
+        viewAdmin(app);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
   app.querySelectorAll("[data-marcar-reembolsado]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("¿Confirmás que ya le transferiste el reembolso a mano a este pasajero?")) return;
@@ -1549,6 +1653,18 @@ async function viewAdmin(app) {
       try {
         await Api.patch(`/api/admin/cuenta-corriente/${btn.dataset.confirmarPagoCuenta}/confirmar`);
         toast("Pago confirmado y descontado", "success");
+        viewAdmin(app);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
+  app.querySelectorAll("[data-confirmar-pago-reserva]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("¿Confirmás que recibiste esta transferencia de la comisión? Se desbloquea al pasajero para reservar otro viaje.")) return;
+      try {
+        const resultado = await Api.patch(`/api/admin/reservas/${btn.dataset.confirmarPagoReserva}/confirmar-pago`);
+        toast(resultado.mensaje || "Pago confirmado", "success");
         viewAdmin(app);
       } catch (err) {
         toast(err.message, "error");

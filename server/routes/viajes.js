@@ -3,6 +3,7 @@
 
 const db = require("../db");
 const pricing = require("../pricing");
+const choferes = require("../choferes");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
 // Cuenta corriente del conductor: acumula deuda cuando cancela un viaje que ya tenía reservas
@@ -98,6 +99,16 @@ async function publicar(req, res) {
       res,
       `Tenés una deuda de $${saldoDeudor} en tu cuenta corriente (por cancelaciones de viajes con reservas ya pagadas), ` +
         `que supera el máximo permitido de $${topeSaldoDeudor}. Regularizala desde "Mi perfil" antes de publicar un viaje nuevo.`
+    );
+  }
+
+  // Bloqueo por cancelaciones seguidas (ver server/choferes.js): se suspende automáticamente al
+  // conductor que cancela demasiados viajes seguidos, hasta que el admin revise el caso y lo reactive.
+  if (conductor.suspendido) {
+    return forbidden(
+      res,
+      `Tu cuenta está suspendida para publicar viajes nuevos (${conductor.suspendido_motivo || "cancelaste varios viajes seguidos"}). ` +
+        `Escribinos por WhatsApp para que el equipo revise tu caso.`
     );
   }
 
@@ -204,11 +215,25 @@ async function cancelar(req, res, params) {
     [nowIso(), params.id]
   );
 
+  // Cancelaciones seguidas: se evalúa DESPUÉS de marcar este viaje como cancelado, para que la
+  // cuenta ya lo incluya. Si con esta llega al umbral de suspensión, queda suspendido automáticamente.
+  const evaluacion = await choferes.evaluarSuspensionPorCancelaciones(row.conductor_id);
+
   let mensaje = "Viaje cancelado. Los pasajeros con reserva confirmada son reembolsados en su totalidad.";
   if (penalizacion) {
     mensaje += ` Como ya había reservas pagadas, se te cargaron $${penalizacion} en tu cuenta corriente (ver "Mi perfil") — compensa la comisión de Mercado Pago que la plataforma pierde al reembolsar.`;
   }
-  ok(res, { mensaje, penalizacion: penalizacion || 0 });
+  if (evaluacion.suspendidoAhora) {
+    mensaje += ` Cancelaste ${evaluacion.consecutivas} viajes seguidos — tu cuenta quedó suspendida para publicar nuevos viajes hasta que el equipo de Ruta Compartida la revise. Escribinos por WhatsApp.`;
+  } else if (evaluacion.alerta) {
+    mensaje += ` Ojo: llevás ${evaluacion.consecutivas} cancelaciones seguidas — si cancelás otro viaje más, tu cuenta queda suspendida automáticamente.`;
+  }
+  ok(res, {
+    mensaje,
+    penalizacion: penalizacion || 0,
+    cancelacionesConsecutivas: evaluacion.consecutivas,
+    suspendido: evaluacion.suspendido,
+  });
 }
 
 async function calcularVista(req, res) {

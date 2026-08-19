@@ -68,6 +68,29 @@ async function crear(req, res) {
     );
   }
 
+  // Bloqueo por deuda (a pedido del usuario, 19 ago 2026): si el pasajero ya tiene una reserva
+  // aceptada/completada sin pagar la comisión (haya declarado un comprobante o no — recién se
+  // considera "saldada" cuando el admin la confirma), no puede reservar otro viaje hasta
+  // regularizar esa deuda. Evita que alguien acumule reservas nuevas mientras debe comisiones
+  // anteriores.
+  const deuda = await db.get(
+    `SELECT r.id, r.comision_plataforma, r.comprobante_pago, v.origen_ciudad, v.destino_ciudad, v.fecha_salida
+     FROM reservas r JOIN viajes v ON v.id = r.viaje_id
+     WHERE r.pasajero_id = ? AND r.estado IN ('aceptada','completada') AND r.pagado = 0
+     ORDER BY r.created_at ASC LIMIT 1`,
+    [body.pasajero_id]
+  );
+  if (deuda) {
+    return forbidden(
+      res,
+      `Tenés una comisión pendiente de $${deuda.comision_plataforma} por el viaje ${deuda.origen_ciudad} → ${deuda.destino_ciudad} ` +
+        (deuda.comprobante_pago
+          ? "(ya subiste el comprobante, está esperando que el equipo lo confirme)."
+          : "todavía sin pagar.") +
+        " Regularizala para poder reservar otro viaje."
+    );
+  }
+
   const asientos = Math.max(1, Number(body.asientos_reservados) || 1);
   if (asientos > viaje.asientos_disponibles) {
     return badRequest(res, `Solo quedan ${viaje.asientos_disponibles} asiento(s) disponibles en este viaje.`);
@@ -208,9 +231,23 @@ async function cambiarEstado(req, res, params) {
   ok(res, { ...filaReserva(actualizado), mensaje });
 }
 
+// El pasajero declara que ya pagó la comisión de la plataforma, adjuntando un comprobante — esto
+// YA NO marca "pagado = 1" directo (era un pago simulado instantáneo antes): queda declarado, y
+// recién el admin lo confirma desde el panel (ver server/routes/admin.js confirmarPagoReserva),
+// mismo patrón que la cuenta corriente de los conductores (declararPagoCuenta/confirmarPagoCuenta).
+// Así "pagado" siempre significa "el equipo confirmó que efectivamente entró la plata", no solo
+// "el pasajero dice que pagó".
 async function pagar(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  if (!body.comprobante) return badRequest(res, "Subí el comprobante del pago de la comisión.");
+
   const reserva = await db.get(
-    `SELECT r.*, v.conductor_id, u.nombre AS conductor_nombre, u.apellido AS conductor_apellido, u.alias_cobro AS conductor_alias
+    `SELECT r.*, v.conductor_id, u.nombre AS conductor_nombre, u.apellido AS conductor_apellido
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id WHERE r.id = ?`,
     [params.id]
   );
@@ -218,13 +255,19 @@ async function pagar(req, res, params) {
   if (reserva.estado !== "aceptada") {
     return badRequest(res, "Solo se puede pagar una reserva ya aceptada por el conductor.");
   }
-  await db.run("UPDATE reservas SET pagado = 1, actualizado_at = ? WHERE id = ?", [nowIso(), params.id]);
+  if (reserva.pagado) return badRequest(res, "Esta reserva ya está pagada y confirmada.");
+
+  await db.run("UPDATE reservas SET comprobante_pago = ?, actualizado_at = ? WHERE id = ?", [
+    body.comprobante,
+    nowIso(),
+    params.id,
+  ]);
   const actualizado = await db.get("SELECT * FROM reservas WHERE id = ?", [params.id]);
   ok(res, {
     reserva: filaReserva(actualizado),
-    mensaje: `Pago de la comisión de Ruta Compartida registrado ($${reserva.comision_plataforma}). Todavía le debés al conductor ` +
-      `$${reserva.monto_conductor} por el viaje en sí — transferíselos por transferencia o QR de Mercado Pago a su alias "${reserva.conductor_alias || "sin alias cargado"}" ` +
-      `al momento de viajar.`,
+    mensaje:
+      `Comprobante recibido. Queda pendiente de que el equipo de Ruta Compartida confirme el pago de la comisión ($${reserva.comision_plataforma}). ` +
+      `Aparte, no te olvides que le debés $${reserva.monto_conductor} al conductor por el viaje en sí — coordinen el medio de pago directamente al momento de viajar.`,
   });
 }
 
