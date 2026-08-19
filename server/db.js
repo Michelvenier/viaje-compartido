@@ -271,6 +271,14 @@ async function initSchema() {
     // publicar viajes nuevos hasta que el admin lo reactive a mano). Editable desde el panel admin.
     ["alerta_cancelaciones_consecutivas", "2"],
     ["suspension_cancelaciones_consecutivas", "3"],
+    // Datos de cobro de la PLATAFORMA (no de un usuario): adónde transfieren pasajeros (comisión) y
+    // conductores (cuenta corriente) — se muestran directo en pantalla en vez de "te lo pasamos por
+    // WhatsApp". Cargados a pedido del usuario (19 ago 2026). Editables desde el panel de admin, se
+    // exponen sin necesidad de estar logueado vía GET /api/config/cobro (server/routes/admin.js
+    // datosCobro) porque cualquier pasajero/conductor sin sesión de admin necesita verlos.
+    ["alias_cobro_plataforma", "michel.venier"],
+    ["titular_cobro_plataforma", "Michel Venier"],
+    ["cuil_cobro_plataforma", "23-38363856-9"],
   ];
   for (const [clave, valor] of defaults) {
     await run(`INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO NOTHING`, [clave, valor]);

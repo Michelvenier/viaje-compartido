@@ -1151,9 +1151,9 @@ function wireSolicitudes(app) {
 // ---------------------------------------------------------------------------
 async function viewPagar(app, params) {
   app.innerHTML = `<div class="container-narrow"><p class="muted">Cargando reserva…</p></div>`;
-  let reserva;
+  let reserva, cobro;
   try {
-    reserva = await Api.get(`/api/reservas/${params.id}`);
+    [reserva, cobro] = await Promise.all([Api.get(`/api/reservas/${params.id}`), Api.get("/api/config/cobro")]);
   } catch (err) {
     app.innerHTML = `<div class="container-narrow"><div class="error-box">${escapeHtml(err.message)}</div></div>`;
     return;
@@ -1183,9 +1183,14 @@ async function viewPagar(app, params) {
           ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""},
           coordinando el medio de pago entre ustedes al momento de viajar.
         </div>
+        <div class="info-box" style="margin-top:14px">
+          <strong>Transferí ${fmtMoney(reserva.comision_plataforma)} a:</strong><br>
+          Alias / CBU: <strong>${escapeHtml(cobro.alias || "sin cargar")}</strong><br>
+          ${cobro.titular ? `Titular: ${escapeHtml(cobro.titular)}${cobro.cuil ? ` (CUIL ${escapeHtml(cobro.cuil)})` : ""}<br>` : ""}
+        </div>
         <form id="form-pagar-comision" style="margin-top:16px">
           <div class="field">
-            <label>Transferí ${fmtMoney(reserva.comision_plataforma)} al alias/CBU de Ruta Compartida (te lo pasamos por WhatsApp) y subí el comprobante acá</label>
+            <label>Subí acá el comprobante de esa transferencia</label>
             ${renderUploadField("comprobante", "Comprobante de la transferencia")}
           </div>
           <button class="btn btn-primary btn-block" type="submit" style="margin-top:8px">Ya transferí — informar pago</button>
@@ -1333,6 +1338,14 @@ function viewAyuda(app) {
   wireAccordions(app);
 }
 
+// Botón "Ver" para abrir un documento privado (foto de DNI, selfie, comprobante, etc.) subido de
+// verdad a Vercel Blob — ver server/blob.js y js/api.js Api.verDocumento(). `pathname` puede venir
+// vacío/null si todavía no se subió nada.
+function botonVerDocumento(pathname, etiqueta) {
+  if (!pathname) return `<span class="muted">${escapeHtml(etiqueta)}: sin subir</span>`;
+  return `<button type="button" class="btn btn-outline btn-sm" data-ver-documento="${escapeHtml(pathname)}">👁️ Ver ${escapeHtml(etiqueta)}</button>`;
+}
+
 // ---------------------------------------------------------------------------
 // ADMIN — validación manual de perfiles + configuración de precios de referencia
 // ---------------------------------------------------------------------------
@@ -1396,9 +1409,8 @@ async function viewAdmin(app) {
 
       <div class="card" style="margin-bottom:20px">
         <h3>Pagos de comisión — por confirmar (${pagosPendientes.length})</h3>
-        <p class="muted">Pasajeros que declararon haber transferido la comisión y subieron un comprobante. Ojo: por ahora el
-        "comprobante" es solo el nombre del archivo que subió, no la foto en sí — pedile que te la mande por WhatsApp si necesitás
-        verla antes de confirmar. Mientras no confirmes, el pasajero queda bloqueado para reservar otro viaje.</p>
+        <p class="muted">Pasajeros que declararon haber transferido la comisión y subieron un comprobante — apretá "Ver comprobante"
+        para revisar la foto antes de confirmar. Mientras no confirmes, el pasajero queda bloqueado para reservar otro viaje.</p>
         ${
           pagosPendientes.length === 0
             ? `<p class="muted">No hay pagos de comisión pendientes de confirmar. 🎉</p>`
@@ -1410,7 +1422,7 @@ async function viewAdmin(app) {
                 <td>${escapeHtml(r.origen_ciudad)} → ${escapeHtml(r.destino_ciudad)}<br><span class="muted" style="font-size:0.78rem">${fmtFecha(r.fecha_salida)} · con ${escapeHtml(r.conductor_nombre)} ${escapeHtml(r.conductor_apellido)}</span></td>
                 <td>${fmtMoney(r.comision_plataforma)}</td>
                 <td>${fmtMoney(r.monto_conductor)}</td>
-                <td class="muted" style="font-size:0.78rem">${escapeHtml(r.comprobante_pago || "-")}</td>
+                <td>${botonVerDocumento(r.comprobante_pago, "comprobante")}</td>
                 <td><button class="btn btn-teal btn-sm" data-confirmar-pago-reserva="${r.id}">Confirmar recibido</button></td>
               </tr>`
                 )
@@ -1447,8 +1459,7 @@ async function viewAdmin(app) {
       <div class="card" style="margin-bottom:20px">
         <h3>Cuenta corriente — pagos de conductores por confirmar (${cuentasPendientes.length})</h3>
         <p class="muted">Pagos que un conductor informó para saldar la deuda de su cuenta corriente (por cancelar viajes con reservas
-        ya pagadas). Ojo: por ahora el "comprobante" es solo el nombre del archivo que subió, no la foto en sí — pedile que te la
-        mande por WhatsApp si necesitás verla antes de confirmar.</p>
+        ya pagadas) — apretá "Ver comprobante" para revisar la foto antes de confirmar.</p>
         ${
           cuentasPendientes.length === 0
             ? `<p class="muted">No hay pagos pendientes de confirmar. 🎉</p>`
@@ -1458,7 +1469,7 @@ async function viewAdmin(app) {
                   (m) => `<tr>
                 <td>${escapeHtml(m.nombre)} ${escapeHtml(m.apellido)}</td>
                 <td>${fmtMoney(m.monto)}</td>
-                <td class="muted" style="font-size:0.78rem">${escapeHtml(m.comprobante || "-")}</td>
+                <td>${botonVerDocumento(m.comprobante, "comprobante")}</td>
                 <td>${fmtMoney(m.saldo_deudor)}</td>
                 <td class="muted" style="font-size:0.78rem">${m.created_at ? fmtFecha(m.created_at.slice(0, 10)) : "-"}</td>
                 <td><button class="btn btn-teal btn-sm" data-confirmar-pago-cuenta="${m.id}">Confirmar recibido</button></td>
@@ -1483,11 +1494,18 @@ async function viewAdmin(app) {
                 <td>${escapeHtml(u.dni || "-")}</td>
                 <td>${escapeHtml(u.email)}</td>
                 <td>
-                  ${[u.doc_dni_frente && "DNI", u.doc_selfie && "Selfie", u.doc_licencia && "Licencia", u.doc_seguro && "Seguro"].filter(Boolean).join(", ") || "-"}
+                  <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    ${botonVerDocumento(u.doc_dni_frente, "DNI frente")}
+                    ${botonVerDocumento(u.doc_dni_dorso, "DNI dorso")}
+                    ${botonVerDocumento(u.doc_selfie, "Selfie")}
+                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_licencia, "Licencia") : ""}
+                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_cedula, "Cédula") : ""}
+                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_seguro, "Seguro") : ""}
+                  </div>
                   ${
                     u.rol === "conductor"
                       ? u.doc_vtv
-                        ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span>`
+                        ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span> ${botonVerDocumento(u.doc_vtv, "VTV")}`
                         : `<br><span style="color:#b00020;font-weight:600">Sin constancia de VTV</span>`
                       : ""
                   }
@@ -1595,6 +1613,9 @@ async function viewAdmin(app) {
           <div class="field"><label>Tope de deuda para bloquear publicar ($)</label><input type="number" name="tope_saldo_deudor" value="${config.tope_saldo_deudor}"></div>
           <div class="field"><label>Alerta a partir de N cancelaciones seguidas</label><input type="number" min="1" name="alerta_cancelaciones_consecutivas" value="${config.alerta_cancelaciones_consecutivas}"></div>
           <div class="field"><label>Suspender a partir de N cancelaciones seguidas</label><input type="number" min="1" name="suspension_cancelaciones_consecutivas" value="${config.suspension_cancelaciones_consecutivas}"></div>
+          <div class="field"><label>Alias / CBU para cobrar (comisión y cuenta corriente)</label><input type="text" name="alias_cobro_plataforma" value="${escapeHtml(config.alias_cobro_plataforma || "")}"></div>
+          <div class="field"><label>Titular de la cuenta</label><input type="text" name="titular_cobro_plataforma" value="${escapeHtml(config.titular_cobro_plataforma || "")}"></div>
+          <div class="field"><label>CUIL/CUIT del titular</label><input type="text" name="cuil_cobro_plataforma" value="${escapeHtml(config.cuil_cobro_plataforma || "")}"></div>
           <div class="field" style="grid-column:1/-1"><button class="btn btn-primary" type="submit">Guardar valores</button></div>
         </form>
       </div>
@@ -1668,6 +1689,22 @@ async function viewAdmin(app) {
         viewAdmin(app);
       } catch (err) {
         toast(err.message, "error");
+      }
+    })
+  );
+  app.querySelectorAll("[data-ver-documento]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const textoOriginal = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Abriendo…";
+      try {
+        const url = await Api.verDocumento(btn.dataset.verDocumento);
+        window.open(url, "_blank");
+      } catch (err) {
+        toast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
       }
     })
   );
@@ -1842,9 +1879,12 @@ async function renderCuentaCorriente(app, fresco) {
   const wrap = app.querySelector("#cuenta-corriente-wrap");
   if (!wrap) return;
   wrap.innerHTML = `<p class="muted" style="margin-top:16px">Cargando cuenta corriente…</p>`;
-  let cuenta;
+  let cuenta, cobro;
   try {
-    cuenta = await Api.get(`/api/usuarios/${fresco.id}/cuenta-corriente`);
+    [cuenta, cobro] = await Promise.all([
+      Api.get(`/api/usuarios/${fresco.id}/cuenta-corriente`),
+      Api.get("/api/config/cobro"),
+    ]);
   } catch (err) {
     wrap.innerHTML = `<div class="error-box" style="margin-top:16px">No se pudo cargar tu cuenta corriente: ${escapeHtml(err.message)}</div>`;
     return;
@@ -1868,15 +1908,19 @@ async function renderCuentaCorriente(app, fresco) {
       }
       ${
         tieneDeuda
-          ? `<form id="form-pago-cuenta" style="margin-top:10px">
+          ? `<div class="info-box" style="margin-top:10px">
+              <strong>Transferí a:</strong><br>
+              Alias / CBU: <strong>${escapeHtml(cobro.alias || "sin cargar")}</strong><br>
+              ${cobro.titular ? `Titular: ${escapeHtml(cobro.titular)}${cobro.cuil ? ` (CUIL ${escapeHtml(cobro.cuil)})` : ""}<br>` : ""}
+            </div>
+            <form id="form-pago-cuenta" style="margin-top:10px">
               <div class="field">
                 <label>Monto que transferiste</label>
                 <input type="number" min="1" id="f-pago-monto" placeholder="Ej: 3000" required>
               </div>
               ${renderUploadField("comprobante", "Comprobante de la transferencia")}
               <button class="btn btn-outline" type="submit" style="margin-top:8px">Informar pago</button>
-              <small class="hint">Transferí el monto al alias/CBU de Ruta Compartida (te lo pasamos por WhatsApp) e informá acá el
-              pago — lo confirmamos y lo descontamos de tu deuda.</small>
+              <small class="hint">Informá acá el pago una vez transferido — lo confirmamos y lo descontamos de tu deuda.</small>
             </form>`
           : ""
       }

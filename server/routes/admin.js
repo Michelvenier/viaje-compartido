@@ -105,11 +105,18 @@ async function validar(req, res, params) {
 
 // "distancias_corredor" guarda un JSON (ciudad -> {km, peaje}), no un número — se trata aparte.
 const CLAVES_JSON = ["distancias_corredor"];
+// Datos de cobro de la plataforma: texto (alias, nombre, CUIL), no números — si se les aplicara
+// Number() como al resto de la config, quedarían en NaN.
+const CLAVES_TEXTO = ["alias_cobro_plataforma", "titular_cobro_plataforma", "cuil_cobro_plataforma"];
 
 async function verConfig(req, res) {
   const rows = await db.all("SELECT * FROM config");
   const config = {};
-  rows.forEach((r) => (config[r.clave] = CLAVES_JSON.includes(r.clave) ? JSON.parse(r.valor) : Number(r.valor)));
+  rows.forEach((r) => {
+    if (CLAVES_JSON.includes(r.clave)) config[r.clave] = JSON.parse(r.valor);
+    else if (CLAVES_TEXTO.includes(r.clave)) config[r.clave] = r.valor;
+    else config[r.clave] = Number(r.valor);
+  });
   // Si se agregó una ciudad nueva al código (server/corredor.js) después de que esta base ya
   // tenía su propia fila de "distancias_corredor" guardada, esa ciudad nueva no aparece sola en
   // la base (el INSERT inicial solo corre una vez, con ON CONFLICT DO NOTHING). Para que el panel
@@ -142,6 +149,9 @@ async function actualizarConfig(req, res) {
     "distancias_corredor",
     "alerta_cancelaciones_consecutivas",
     "suspension_cancelaciones_consecutivas",
+    "alias_cobro_plataforma",
+    "titular_cobro_plataforma",
+    "cuil_cobro_plataforma",
   ];
   for (const clave of permitidas) {
     if (!(clave in body)) continue;
@@ -270,6 +280,23 @@ async function confirmarPagoReserva(req, res, params) {
   ok(res, { mensaje: "Pago de la comisión confirmado." });
 }
 
+// Datos de cobro de la PLATAFORMA (alias/CBU, titular, CUIL) — a diferencia del resto de /api/admin/*,
+// esto NO requiere sesión de admin: cualquier pasajero pagando la comisión o conductor pagando su
+// cuenta corriente necesita verlos en pantalla, sin estar logueado como admin. Se registra en
+// api/[...path].js sin el wrapper adminOnly(). Editable desde el panel admin (Valores de referencia).
+async function datosCobro(req, res) {
+  const rows = await db.all(
+    "SELECT clave, valor FROM config WHERE clave IN ('alias_cobro_plataforma','titular_cobro_plataforma','cuil_cobro_plataforma')"
+  );
+  const datos = {};
+  rows.forEach((r) => (datos[r.clave] = r.valor));
+  ok(res, {
+    alias: datos.alias_cobro_plataforma || "",
+    titular: datos.titular_cobro_plataforma || "",
+    cuil: datos.cuil_cobro_plataforma || "",
+  });
+}
+
 // Endpoint protegido de una sola vez para inicializar el esquema y cargar datos de ejemplo
 // en la base Postgres recién provisionada (no se puede correr `node data/seed.js` local
 // porque la base vive en la nube). Requiere la variable de entorno SEED_SECRET.
@@ -343,6 +370,7 @@ module.exports = {
   confirmarPagoCuenta,
   pagosPendientes,
   confirmarPagoReserva,
+  datosCobro,
   seed,
   configurarAdmin,
 };

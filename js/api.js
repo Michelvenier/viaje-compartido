@@ -36,10 +36,36 @@ const Api = (() => {
     return data;
   }
 
+  // Trae un documento privado (foto de DNI, selfie, comprobante de pago, etc. — ver server/blob.js)
+  // como un objeto binario, no JSON — por eso no puede pasar por req() de arriba. Devuelve una URL
+  // de blob local (`URL.createObjectURL`) lista para abrir en una pestaña nueva o mostrar en un
+  // <img>. Manda el mismo Bearer de admin que el resto de /api/admin/*, a mano, porque esto NO es
+  // una navegación de <a href> común (esa no puede llevar el header Authorization).
+  async function verDocumento(pathname) {
+    const headers = {};
+    if (typeof Session !== "undefined") {
+      const usuario = Session.get();
+      if (usuario && usuario.adminToken) headers["Authorization"] = `Bearer ${usuario.adminToken}`;
+    }
+    const resp = await fetch(`/api/admin/documento?pathname=${encodeURIComponent(pathname)}`, { headers });
+    if (!resp.ok) {
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        data = null;
+      }
+      throw new Error((data && data.error) || `Error ${resp.status} al abrir el documento`);
+    }
+    const blob = await resp.blob();
+    return URL.createObjectURL(blob);
+  }
+
   return {
     get: (path) => req("GET", path),
     post: (path, body) => req("POST", path, body),
     patch: (path, body) => req("PATCH", path, body),
     del: (path) => req("DELETE", path),
+    verDocumento,
   };
 })();

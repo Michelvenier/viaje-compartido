@@ -48,6 +48,20 @@ flujo de reservas) es exactamente la misma.
      La app cachea cada distancia consultada (tabla `distancias_cache`) para no volver a pagar por la misma
      ruta dos veces, y estima el peaje de estos trayectos como km × un valor de referencia por km (config
      `peaje_por_km_estimado`, editable desde el panel de admin) — Google Maps no informa costo de peajes.
+   - **Blob store** (necesaria para que las fotos de documentos — DNI, selfie, licencia, seguro, VTV — y los
+     comprobantes de pago se guarden de verdad, no solo el nombre del archivo): en el proyecto de Vercel,
+     andá a **Storage → Create Database → Blob**, elegí acceso **Private** (importante: no "Public" — son
+     documentos de identidad), ponele un nombre (ej. "Documentos"), y conectalo a este proyecto (tildá
+     Production y Preview, y Development si vas a probar en tu compu). Vercel agrega automáticamente la
+     variable `BLOB_READ_WRITE_TOKEN` (y otras) — no hay que copiar ninguna clave a mano, a diferencia de
+     Google Maps. Los archivos quedan guardados como privados: nadie puede verlos con solo la URL, hace
+     falta estar logueado como admin (`GET /api/admin/documento`, ver `server/blob.js`). El navegador
+     comprime cada foto antes de subirla (máximo ~1600px, calidad ~82%) para no acercarse al límite de 4.5 MB
+     por request que tienen las funciones de Vercel en el plan Hobby.
+     **Ojo:** las fotos que los usuarios subieron ANTES de activar esta variable no se migran solas — para
+     esas cuentas viejas, el botón "Ver" del panel admin va a decir "no encontrado" (porque lo que se había
+     guardado antes era solo el nombre del archivo, no una foto real). De acá en adelante, toda subida nueva
+     sí queda guardada de verdad.
 5. **Desplegar** (Vercel lo hace automáticamente al importar, o con "Redeploy" después de agregar las
    variables de entorno).
 6. **Cargar los datos de ejemplo** (una sola vez): abrí en el navegador

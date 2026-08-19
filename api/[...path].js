@@ -18,6 +18,7 @@ const viajes = require("../server/routes/viajes");
 const reservas = require("../server/routes/reservas");
 const calificaciones = require("../server/routes/calificaciones");
 const admin = require("../server/routes/admin");
+const blob = require("../server/blob");
 
 const router = new Router();
 
@@ -90,6 +91,18 @@ router.get("/api/admin/pagos-pendientes", adminOnly(admin.pagosPendientes));
 router.patch("/api/admin/reservas/:id/confirmar-pago", adminOnly(admin.confirmarPagoReserva));
 router.get("/api/admin/seed", admin.seed);
 router.post("/api/admin/configurar-admin", admin.configurarAdmin);
+
+// Datos de cobro de la plataforma (alias/CBU, titular, CUIL) — a propósito SIN adminOnly: los
+// necesita ver cualquier pasajero pagando la comisión o conductor pagando su cuenta corriente,
+// sin sesión de admin. Ver server/routes/admin.js datosCobro().
+router.get("/api/config/cobro", admin.datosCobro);
+
+// Almacenamiento real de archivos (Vercel Blob) — ver server/blob.js para la explicación completa
+// de por qué está armado así. "subir" es público (mismo nivel de confianza que el resto de la
+// app); "verDocumento" exige sesión de admin porque sirve documentos de identidad y comprobantes
+// de pago de otras personas.
+router.post("/api/upload", blob.subir);
+router.get("/api/admin/documento", adminOnly(blob.verDocumento));
 
 let schemaReady = null;
 function ensureSchema() {

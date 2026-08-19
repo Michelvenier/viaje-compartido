@@ -122,17 +122,95 @@ function renderUploadField(name, label, hint) {
     </div>`;
 }
 
+// Redimensiona/comprime una imagen en el navegador ANTES de subirla — dos motivos: (1) las
+// funciones de Vercel (plan Hobby) rechazan requests de más de 4.5 MB, y una foto de cámara sin
+// comprimir (DNI, selfie) puede pesar bastante más que eso; (2) ahorra datos móviles y espacio de
+// storage. Si por lo que sea la compresión falla (formato raro, navegador viejo), se sube el
+// archivo original tal cual — mejor eso que bloquear la subida.
+async function comprimirImagen(file, maxDim = 1600, calidad = 0.82) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return file;
+  try {
+    let ancho, alto, fuente;
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(file);
+      ancho = bitmap.width;
+      alto = bitmap.height;
+      fuente = bitmap;
+    } else {
+      const url = URL.createObjectURL(file);
+      fuente = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+      ancho = fuente.naturalWidth;
+      alto = fuente.naturalHeight;
+      URL.revokeObjectURL(url);
+    }
+    if (!ancho || !alto) return file;
+    const escala = Math.min(1, maxDim / Math.max(ancho, alto));
+    const w = Math.max(1, Math.round(ancho * escala));
+    const h = Math.max(1, Math.round(alto * escala));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(fuente, 0, 0, w, h);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", calidad));
+    return blob || file;
+  } catch (e) {
+    return file;
+  }
+}
+
+// Sube el archivo (ya comprimido) al storage real (server/blob.js → Vercel Blob) y devuelve el
+// "pathname" que hay que guardar en el campo correspondiente — reemplaza lo que antes era "solo
+// guardar el nombre del archivo elegido".
+async function subirArchivo(campo, blobOFile) {
+  const tipo = blobOFile.type || "image/jpeg";
+  const resp = await fetch("/api/upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Upload-Content-Type": tipo,
+      "X-Upload-Campo": campo,
+    },
+    body: blobOFile,
+  });
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    data = null;
+  }
+  if (!resp.ok) throw new Error((data && data.error) || `Error ${resp.status} al subir el archivo`);
+  return data.pathname;
+}
+
 function wireUploads(root = document) {
   root.querySelectorAll("[data-upload-input]").forEach((input) => {
-    input.addEventListener("change", () => {
+    input.addEventListener("change", async () => {
       const name = input.dataset.uploadInput;
       const wrapper = root.querySelector(`[data-upload="${name}"]`);
       const hidden = root.querySelector(`[data-upload-hidden="${name}"]`);
       const filenameEl = root.querySelector(`[data-upload-filename="${name}"]`);
-      if (input.files && input.files[0]) {
+      if (!input.files || !input.files[0]) return;
+      const original = input.files[0];
+      wrapper.classList.remove("filled");
+      hidden.value = "";
+      filenameEl.textContent = "⏳ Subiendo…";
+      try {
+        const comprimida = await comprimirImagen(original);
+        const pathname = await subirArchivo(name, comprimida);
         wrapper.classList.add("filled");
-        hidden.value = input.files[0].name;
-        filenameEl.textContent = "✅ " + input.files[0].name;
+        hidden.value = pathname;
+        filenameEl.textContent = "✅ " + original.name;
+      } catch (err) {
+        wrapper.classList.remove("filled");
+        hidden.value = "";
+        filenameEl.textContent = "❌ No se pudo subir: " + err.message;
+        input.value = "";
       }
     });
   });
