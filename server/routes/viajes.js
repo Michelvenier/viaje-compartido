@@ -56,15 +56,19 @@ function filaViaje(row) {
   return copy;
 }
 
-// A propósito NO trae foto, bio, teléfono ni datos del vehículo: mientras el pasajero está
-// buscando o mirando el detalle de un viaje (todavía no reservó ni el conductor confirmó nada)
-// solo debe ver nombre y valoración — así no puede escribirle por fuera de la app antes de
-// confirmar y pagar. Los datos completos del conductor se exponen recién en las reservas
-// del pasajero, una vez que el conductor aceptó su solicitud (ver api/routes/reservas.js).
+// A propósito NO trae bio, teléfono ni datos del vehículo: mientras el pasajero está buscando o
+// mirando el detalle de un viaje (todavía no reservó ni el conductor confirmó nada) no puede
+// escribirle ni verlo por fuera de la app antes de confirmar y pagar. Los datos completos del
+// conductor (auto, teléfono) se exponen recién en las reservas del pasajero, una vez que el
+// conductor aceptó su solicitud (ver api/routes/reservas.js). SÍ trae foto_perfil y rating desde
+// el 20 ago 2026 — a pedido del usuario, tanto el pasajero eligiendo viaje como el conductor
+// aceptando una solicitud tienen que poder ver la foto y la valoración de la otra persona antes
+// de confirmar (ver renderSolicitudRow en js/views.js para el lado del conductor, que ya
+// mostraba foto+rating del pasajero desde antes).
 async function conConductor(row) {
   const viaje = filaViaje(row);
   const conductor = await db.get(
-    `SELECT id, nombre, apellido, rating_promedio, rating_count, estado_validacion
+    `SELECT id, nombre, apellido, foto_perfil, rating_promedio, rating_count, estado_validacion
      FROM usuarios WHERE id = ?`,
     [viaje.conductor_id]
   );
@@ -127,15 +131,26 @@ async function publicar(req, res) {
   if (calculo.error) return badRequest(res, calculo.error);
 
   const id = newId("trip");
-  // Puntos de encuentro elegidos con el buscador (server/routes/lugares.js): objeto opcional
-  // keyeado por nombre de ciudad exacto (origen_ciudad, destino_ciudad, o una de
-  // ciudades_intermedias), valor {nombre, direccion, lat, lng, place_id}. Nunca se toma tal cual
-  // sin validar la forma básica — si viene algo raro (no objeto), se descarta a {} en vez de
-  // romper la publicación.
+  // Puntos de encuentro elegidos con el buscador (server/routes/lugares.js): objeto keyeado por
+  // nombre de ciudad exacto (origen_ciudad, destino_ciudad, o una de ciudades_intermedias), valor
+  // {nombre, direccion, lat, lng, place_id}. Nunca se toma tal cual sin validar la forma básica —
+  // si viene algo raro (no objeto), se descarta a {} en vez de romper la publicación.
   const puntosEncuentro =
     body.puntos_encuentro && typeof body.puntos_encuentro === "object" && !Array.isArray(body.puntos_encuentro)
       ? body.puntos_encuentro
       : {};
+  // Punto de encuentro OBLIGATORIO en origen y destino (20 ago 2026, a pedido explícito del
+  // usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
+  // partida y al punto de llegada"). El frontend ya no deja publicar sin elegirlos (ver
+  // js/views.js viewPublicar), pero se valida también acá por si alguien pega directo al endpoint
+  // sin pasar por el formulario. Las ciudades intermedias siguen siendo opcionales.
+  const puntoValido = (p) => p && typeof p === "object" && p.nombre && typeof p.lat === "number" && typeof p.lng === "number";
+  if (!puntoValido(puntosEncuentro[body.origen_ciudad])) {
+    return badRequest(res, `Elegí el punto de encuentro exacto en ${body.origen_ciudad} (buscalo en el mapa antes de publicar).`);
+  }
+  if (!puntoValido(puntosEncuentro[body.destino_ciudad])) {
+    return badRequest(res, `Elegí el punto de encuentro exacto en ${body.destino_ciudad} (buscalo en el mapa antes de publicar).`);
+  }
   await db.run(
     `INSERT INTO viajes (
       id, conductor_id, origen_direccion, origen_ciudad, destino_ciudad, ciudades_intermedias,

@@ -151,7 +151,7 @@ function renderTripCard(viaje) {
           <span class="tag">${viaje.pref_charla === "silencio" ? "🤫 Prefiere silencio" : "💬 Le gusta charlar"}</span>
         </div>
         <div class="trip-driver">
-          <div class="avatar">${iniciales(c.nombre, c.apellido)}</div>
+          ${avatarHtml(c.foto_perfil, c.nombre, c.apellido)}
           <div>
             <strong>${escapeHtml(c.nombre || "")}</strong>
             ${c.rating_count ? `<span class="stars">★ ${c.rating_promedio}</span> <span class="muted">(${c.rating_count})</span>` : '<span class="muted">Sin calificaciones aún</span>'}
@@ -218,7 +218,9 @@ function wireChips(root = document) {
 // server/routes/lugares.js, para que la key de Google nunca llegue al navegador) + mapa de solo
 // lectura embebido SIN key (parámetro "output=embed"), a pedido del usuario (19 ago 2026): "que
 // seleccione el punto de encuentro en google maps y que le aparezca al usuario los puntos de
-// encuentro... Todo esto igual a blablacar y que se seleccione y vea todo en google map".
+// encuentro... que se seleccione y vea todo en google map" (20 ago 2026: a pedido del usuario, este
+// archivo — que se sirve tal cual al navegador, sin build step — no debe mencionar marcas de la
+// competencia en ningún comentario ni texto visible, aunque el usuario las nombre en el chat).
 //
 // Por qué no hay un mapa "de verdad" con pin arrastrable: eso requiere la API de JavaScript de
 // Google Maps, que sí necesita una key visible en el navegador — el usuario pidió explícitamente
@@ -271,11 +273,19 @@ function puntosEncuentroReservaHtml(r) {
 // puntual del camino (origen, destino, o una de las intermedias). `ciudad` es la clave exacta que
 // después se usa en viaje.puntos_encuentro; `seleccionado` es el punto ya elegido para esa ciudad
 // en esta sesión de edición, si hay (se preserva al re-renderizar el contenedor completo, ver
-// js/views.js viewPublicar → renderPuntosEncuentroContainer).
-function puntoEncuentroEditarHtml(ciudad, seleccionado) {
+// js/views.js viewPublicar → renderPuntosEncuentroContainer). `requerido` (20 ago 2026, a pedido
+// del usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
+// partida y al punto de llegada") — true para origen y destino (no se puede publicar sin elegir un
+// punto ahí, ver validación en el submit de viewPublicar), false para ciudades intermedias (esas
+// siguen siendo opcionales).
+function puntoEncuentroEditarHtml(ciudad, seleccionado, requerido) {
   return `<div class="punto-encuentro-editar" data-ciudad="${escapeHtml(ciudad)}" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
-    <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">(opcional)</span></label>
-    <small class="hint">Buscá un lugar puntual — una estación de servicio, terminal, plaza, entrada a la ciudad, etc. — igual que en BlaBlaCar. Si no elegís nada, queda solo el nombre de la ciudad.</small>
+    <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">${requerido ? "(obligatorio)" : "(opcional)"}</span></label>
+    <small class="hint">${
+      requerido
+        ? "Buscá y elegí el lugar exacto donde vas a esperar (o dejar) a tus pasajeros acá — una estación de servicio, terminal, plaza, tu casa, etc."
+        : "Buscá un lugar puntual si tu ruta pasa por acá — la entrada a la ciudad o una estación de servicio suelen ser buenas opciones por defecto. Si no elegís nada, queda solo el nombre de la ciudad."
+    }</small>
     <div class="field-row" style="margin-top:6px">
       <input type="text" class="pe-buscar-input" placeholder="Ej: YPF Ruta 5, ${escapeHtml(ciudad)}" style="flex:1">
       <button type="button" class="btn btn-outline pe-buscar-btn">Buscar</button>

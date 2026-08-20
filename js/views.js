@@ -241,11 +241,11 @@ async function viewDetalle(app, params) {
           <span class="tag">${viaje.pref_musica === "no" ? "🔇 Sin música" : "🎵 Con música"}</span>
         </div>
         <div style="display:flex;align-items:center;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-          <div class="avatar lg">${iniciales(c.nombre, c.apellido)}</div>
+          ${avatarHtml(c.foto_perfil, c.nombre, c.apellido, "lg")}
           <div>
             <strong>${escapeHtml(c.nombre || "")} ${escapeHtml((c.apellido || "")[0] || "")}.</strong>
             <div class="muted">${c.rating_count ? `★ ${c.rating_promedio} (${c.rating_count} viajes)` : "Todavía sin calificaciones"}</div>
-            <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto, la foto y el teléfono del conductor una vez que acepte tu reserva.</div>
+            <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto y el teléfono del conductor una vez que acepte tu reserva.</div>
           </div>
         </div>
       </div>
@@ -475,10 +475,6 @@ function viewPublicar(app) {
         <div id="maps-status" class="muted" style="font-size:0.85rem;margin-bottom:10px">🌎 Cargando el buscador de Google Maps…</div>
         <div id="publicar-error"></div>
         <form id="form-publicar">
-          <div class="field" data-punto-partida-field>
-            <label>Punto de partida exacto</label>
-            <input type="text" name="origen_direccion" placeholder="Ej: Terminal de Ómnibus, La Plata" required>
-          </div>
           <div class="field-row">
             <div class="field" data-ciudad-field="origen_ciudad">
               <label>Salgo de</label>
@@ -496,8 +492,8 @@ function viewPublicar(app) {
           </div>
 
           <div class="field">
-            <label>Puntos de encuentro (opcional)</label>
-            <small class="hint">Elegí un lugar puntual en cada ciudad del camino — igual que en BlaBlaCar — para que quien reserve sepa exactamente dónde encontrarte, no solo el nombre de la ciudad.</small>
+            <label>Puntos de encuentro</label>
+            <small class="hint">Buscá y elegí en el mapa el lugar exacto donde vas a esperar a tus pasajeros en el origen y donde los dejás en el destino — en las ciudades intermedias es opcional (si tu ruta pasa por la entrada de la ciudad o por una estación de servicio, esos son buenos puntos por defecto).</small>
             <div id="puntos-encuentro-container"></div>
           </div>
 
@@ -600,7 +596,13 @@ function viewPublicar(app) {
       cont.innerHTML = `<p class="muted">Elegí origen y destino para poder marcar puntos de encuentro.</p>`;
       return;
     }
-    cont.innerHTML = ciudadesUnicas.map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c])).join("");
+    // Origen y destino son obligatorios (20 ago 2026, a pedido del usuario: "quiero que todo se vea
+    // en google maps... obviamente lo elige el chofer al punto de partida y al punto de llegada") —
+    // las ciudades intermedias siguen siendo opcionales, con la entrada a la ciudad o una estación
+    // de servicio como sugerencia por defecto (ver hint de puntoEncuentroEditarHtml).
+    cont.innerHTML = ciudadesUnicas
+      .map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c], c === origen_ciudad || c === destino_ciudad))
+      .join("");
     wirePuntosEncuentro(cont, puntosEncuentro);
   }
   renderPuntosEncuentroContainer();
@@ -674,30 +676,23 @@ function viewPublicar(app) {
     ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
   }
 
-  // Reemplaza "Punto de partida exacto" por un buscador de lugares reales de Google Maps
-  // (direcciones, estaciones de servicio, terminales, etc.) en vez de texto libre.
-  function mejorarPuntoPartida() {
-    const cont = form.querySelector("[data-punto-partida-field]");
-    if (!cont) return;
-    const input = cont.querySelector('[name="origen_direccion"]');
-    input.placeholder = "Buscá el lugar exacto de partida (ej. una terminal, estación de servicio, plaza)…";
-    wireAutocompletePlace(input, (lugar) => {
-      input.value = lugar.direccion;
-    });
-  }
+  // Nota: el "punto de partida exacto" ya NO es un campo de texto aparte (ver más abajo, submit) —
+  // se toma directo del punto de encuentro que el conductor elige para la ciudad de origen en el
+  // buscador de "Puntos de encuentro" de arriba (obligatorio), así hay un solo lugar donde elegirlo
+  // y siempre queda con su mapa. `wireAutocompletePlace` (js/components.js) sigue existiendo por si
+  // se necesita en otro lado, pero ya no se usa acá.
 
   async function mejorarConGoogleMaps() {
     try {
       await GoogleMapsLoader.listo();
     } catch {
-      mapsStatus.innerHTML = `⚠️ El buscador de Google Maps no está disponible en este momento — completá los campos de siempre a mano.`;
+      mapsStatus.innerHTML = `⚠️ El buscador de ciudades de Google Maps no está disponible en este momento — completá origen/destino/intermedias de la lista de siempre a mano. Los puntos de encuentro (más abajo) buscan aparte y siguen funcionando igual.`;
       return;
     }
     if (!form.isConnected) return; // el usuario pudo haber navegado a otra vista mientras cargaba
     mejorarCampoCiudad("origen_ciudad");
     mejorarCampoCiudad("destino_ciudad");
     mejorarCampoIntermedias();
-    mejorarPuntoPartida();
     mapsStatus.remove();
   }
   mejorarConGoogleMaps();
@@ -746,6 +741,17 @@ function viewPublicar(app) {
       toast("Elegí el origen y el destino de la lista de sugerencias (no alcanza con escribirlo).", "error");
       return;
     }
+    // Punto de encuentro obligatorio en origen y destino (20 ago 2026, a pedido del usuario) — sin
+    // esto no se puede publicar, así todo viaje nuevo siempre tiene un lugar puntual con mapa en
+    // los dos extremos, no solo el nombre de la ciudad.
+    if (!puntosEncuentro[ciudades.origen_ciudad]) {
+      toast(`Elegí el punto de encuentro exacto en ${ciudades.origen_ciudad} (buscalo más abajo, en "Puntos de encuentro").`, "error");
+      return;
+    }
+    if (!puntosEncuentro[ciudades.destino_ciudad]) {
+      toast(`Elegí el punto de encuentro exacto en ${ciudades.destino_ciudad} (buscalo más abajo, en "Puntos de encuentro").`, "error");
+      return;
+    }
     const fd = new FormData(form);
     const intermedias = ciudadesIntermediasElegidas();
     // Solo se mandan los puntos de encuentro de ciudades que siguen siendo parte del camino —
@@ -756,9 +762,13 @@ function viewPublicar(app) {
     for (const [ciudad, punto] of Object.entries(puntosEncuentro)) {
       if (caminoActual.has(ciudad)) puntosEncuentroAEnviar[ciudad] = punto;
     }
+    // origen_direccion (el texto que se sigue guardando en viajes.origen_direccion, usado como
+    // fallback de siempre en pantallas viejas) ahora sale directo del punto de encuentro elegido
+    // para el origen, en vez de ser un campo de texto aparte — un solo lugar donde se elige.
+    const puntoOrigen = puntosEncuentro[ciudades.origen_ciudad];
     const payload = {
       conductor_id: user.id,
-      origen_direccion: fd.get("origen_direccion"),
+      origen_direccion: puntoOrigen.direccion || puntoOrigen.nombre,
       ...ciudades,
       ciudades_intermedias: intermedias,
       puntos_encuentro: puntosEncuentroAEnviar,
@@ -1268,7 +1278,9 @@ async function viewMisViajes(app) {
             ${
               r.tramo_origen_ciudad && (r.tramo_origen_ciudad !== r.origen_ciudad || r.tramo_destino_ciudad !== r.destino_ciudad)
                 ? `<div class="muted" style="font-size:0.85rem">🚏 Tu tramo: <strong>${escapeHtml(r.tramo_origen_ciudad)} → ${escapeHtml(r.tramo_destino_ciudad)}</strong></div>`
-                : ""
+                : r.origen_direccion
+                  ? `<div class="muted" style="font-size:0.85rem">📍 Punto de partida: ${escapeHtml(r.origen_direccion)}</div>`
+                  : ""
             }
             <div class="muted">📅 ${fmtFecha(r.fecha_salida)} · 🕒 ${r.hora_salida} · 💺 ${r.asientos_reservados} asiento(s)</div>
             ${puntosEncuentroReservaHtml(r)}
@@ -1486,6 +1498,7 @@ async function viewPagar(app, params) {
       <div class="card">
         <h2>Confirmar pago</h2>
         <p class="muted">${escapeHtml(reserva.origen_ciudad)} → ${escapeHtml(reserva.destino_ciudad)} · ${fmtFecha(reserva.fecha_salida)}</p>
+        ${reserva.origen_direccion ? `<p class="muted" style="font-size:0.85rem">📍 Punto de partida: ${escapeHtml(reserva.origen_direccion)}</p>` : ""}
         <div class="price-breakdown">
           <div class="row"><span>Precio por asiento</span><span>${fmtMoney(reserva.precio_por_asiento)}</span></div>
           <div class="row"><span>Asientos reservados</span><span>${reserva.asientos_reservados}</span></div>

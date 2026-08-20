@@ -161,7 +161,8 @@ const SELECT_CONDUCTOR_RESERVA = `
 
 async function obtener(req, res, params) {
   const row = await db.get(
-    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id, v.precio_por_asiento,
+    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.origen_direccion, v.fecha_salida, v.hora_salida,
+            v.conductor_id, v.precio_por_asiento,
             ${SELECT_CONDUCTOR_RESERVA}
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id WHERE r.id = ?`,
     [params.id]
@@ -172,8 +173,14 @@ async function obtener(req, res, params) {
 
 async function porPasajero(req, res, params) {
   const rows = await db.all(
-    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida, v.conductor_id,
-            v.puntos_encuentro,
+    // origen_direccion (20 ago 2026, a pedido del usuario: "una vez que confirma el viaje le tiene
+    // que salir origen y destino, asi sabe donde sube al auto") — antes de esto, "Mis reservas" solo
+    // mostraba el nombre de la CIUDAD de origen/destino (ya lo hacía), pero no el punto de partida
+    // exacto que cargó el conductor al publicar — el pasajero se enteraba de esa dirección solo si
+    // la vio en la pantalla de detalle ANTES de reservar (viewDetalle) y se acordaba. Ahora se repite
+    // acá también, para que quede a mano después de confirmar.
+    `SELECT r.*, v.origen_ciudad, v.destino_ciudad, v.origen_direccion, v.fecha_salida, v.hora_salida,
+            v.conductor_id, v.puntos_encuentro,
             ${SELECT_CONDUCTOR_RESERVA}
      FROM reservas r JOIN viajes v ON v.id = r.viaje_id JOIN usuarios u ON u.id = v.conductor_id
      WHERE r.pasajero_id = ? ORDER BY r.created_at DESC`,
