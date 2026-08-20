@@ -17,12 +17,27 @@
 // publicar el viaje con una distancia inventada.
 "use strict";
 
-async function distanciaKmEntreCiudades(ciudadA, ciudadB) {
+// `coordsA`/`coordsB` (20 ago 2026): {lat, lng} opcional del lugar EXACTO que el conductor ya
+// eligió con el Autocomplete real de Google Maps al elegir la ciudad (ver js/components.js
+// wireAutocompleteCiudad, que ya captura lat/lng de la selección pero antes se descartaban). Se
+// prefieren sobre el nombre de la ciudad como texto porque hay nombres de ciudad repetidos varias
+// veces en Argentina — ej. "San Vicente" existe en Buenos Aires, Misiones, Santa Fe y Salta; hay un
+// "General Alvear" en Mendoza (el más conocido) y otro en Buenos Aires — y pedirle a la Distance
+// Matrix API "San Vicente, Argentina" sin más contexto puede resolver a la localidad equivocada, o
+// no encontrar ruta entre las dos que resolvió, y devolver un error de "no pudimos calcular la
+// distancia" aunque las dos ciudades reales sí estén conectadas por ruta. Con lat/lng no hay
+// ambigüedad posible: es el punto exacto que Google ya nos devolvió al elegir esa ciudad. Si no
+// vienen coordenadas (ej. viajes viejos, o el buscador de ciudades cayó al modo de lista fija sin
+// Google Maps), se sigue usando el nombre como texto, igual que antes.
+async function distanciaKmEntreCiudades(ciudadA, ciudadB, coordsA, coordsB) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) return null;
 
-  const origen = encodeURIComponent(`${ciudadA}, Argentina`);
-  const destino = encodeURIComponent(`${ciudadB}, Argentina`);
+  const coordsValidas = (c) => c && typeof c.lat === "number" && typeof c.lng === "number";
+  const origenTexto = coordsValidas(coordsA) ? `${coordsA.lat},${coordsA.lng}` : `${ciudadA}, Argentina`;
+  const destinoTexto = coordsValidas(coordsB) ? `${coordsB.lat},${coordsB.lng}` : `${ciudadB}, Argentina`;
+  const origen = encodeURIComponent(origenTexto);
+  const destino = encodeURIComponent(destinoTexto);
   const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origen}&destinations=${destino}&units=metric&key=${apiKey}`;
 
   try {

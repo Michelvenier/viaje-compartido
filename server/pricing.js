@@ -74,7 +74,14 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
 // El peaje SIEMPRE se estima como km × "peaje_por_km_estimado" (config) cuando el km viene de cache
 // o de Google Maps, porque ninguna de las dos fuentes informa costo real de peajes — solo cuando se
 // cae al respaldo de la tabla curada se usa el peaje que también viene cargado ahí a mano.
-async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos) {
+// `origenCoords`/`destinoCoords` (20 ago 2026, opcionales): {lat, lng} del lugar exacto que ya
+// resolvió el Autocomplete de Google Maps al elegir esa ciudad (ver server/maps.js
+// distanciaKmEntreCiudades para el motivo — nombres de ciudad ambiguos como "San Vicente" o
+// "General Alvear" pueden resolver mal o fallar si solo se manda el nombre como texto). Solo se
+// usan para la llamada real a Google Maps cuando no hay nada cacheado todavía — el cache siempre
+// queda indexado por nombre de ciudad, no por coordenadas, así que no cambia nada de lo que ya
+// estaba cacheado.
+async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos, origenCoords, destinoCoords) {
   const validado = validarCiudades(origenCiudad, destinoCiudad);
   if (validado.error) return { error: validado.error };
 
@@ -85,7 +92,7 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
   let peaje = null;
 
   if (km == null) {
-    km = await maps.distanciaKmEntreCiudades(origen, destino);
+    km = await maps.distanciaKmEntreCiudades(origen, destino, origenCoords, destinoCoords);
     if (km != null) await guardarDistanciaCache(origen, destino, km);
   }
 

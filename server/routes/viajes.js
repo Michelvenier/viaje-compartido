@@ -7,6 +7,13 @@ const choferes = require("../choferes");
 const corredor = require("../corredor");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
+// Valida la forma básica de un {lat, lng} que venga del cliente (ver server/maps.js
+// distanciaKmEntreCiudades) — nunca se confía en el shape sin chequear, para no mandarle basura a
+// la URL de la Distance Matrix API. Devuelve undefined si no es válido (equivalente a "no vino").
+function coordsValidas(c) {
+  return c && typeof c === "object" && typeof c.lat === "number" && typeof c.lng === "number" ? c : undefined;
+}
+
 // Cuenta corriente del conductor: acumula deuda cuando cancela un viaje que ya tenía reservas
 // pagadas (Ruta Compartida pierde la comisión de Mercado Pago al tener que reembolsar esa
 // comisión al pasajero, aunque el reembolso en sí siempre sea correcto y se haga igual). El monto
@@ -127,7 +134,18 @@ async function publicar(req, res) {
   // Distancia, peajes y precio se calculan SIEMPRE en el servidor a partir de las ciudades — no
   // se toma ningún valor de distancia_km, peajes_estimados ni precio_por_asiento que venga del
   // cliente, así nadie (ni el propio conductor) puede modificarlos. Ver api/corredor.js.
-  const calculo = await pricing.calcularPorCiudades(body.origen_ciudad, body.destino_ciudad, asientosOfrecidos);
+  // origen_coords/destino_coords (opcionales, 20 ago 2026): lat/lng del lugar exacto que el
+  // Autocomplete de ciudades ya resolvió en el navegador (ver js/views.js viewPublicar) — solo se
+  // usan para desambiguar la consulta a Google Maps si hace falta pedirle la distancia (nunca se
+  // usan para el precio en sí, eso sigue saliendo 100% de km/peajes ya calculados acá). Si vienen
+  // con forma rara, se ignoran sin romper la publicación.
+  const calculo = await pricing.calcularPorCiudades(
+    body.origen_ciudad,
+    body.destino_ciudad,
+    asientosOfrecidos,
+    coordsValidas(body.origen_coords),
+    coordsValidas(body.destino_coords)
+  );
   if (calculo.error) return badRequest(res, calculo.error);
 
   const id = newId("trip");
@@ -286,7 +304,13 @@ async function calcularVista(req, res) {
   }
   if (!body.origen_ciudad || !body.destino_ciudad) return badRequest(res, "Elegí ciudad de origen y de destino.");
   const asientos = Math.min(Math.max(Number(body.asientos_totales) || 3, 1), 4);
-  const calculo = await pricing.calcularPorCiudades(body.origen_ciudad, body.destino_ciudad, asientos);
+  const calculo = await pricing.calcularPorCiudades(
+    body.origen_ciudad,
+    body.destino_ciudad,
+    asientos,
+    coordsValidas(body.origen_coords),
+    coordsValidas(body.destino_coords)
+  );
   if (calculo.error) return badRequest(res, calculo.error);
   ok(res, calculo);
 }

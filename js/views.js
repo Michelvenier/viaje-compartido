@@ -572,6 +572,21 @@ function viewPublicar(app) {
   // intermedias). Keyeado por nombre exacto de ciudad.
   const puntosEncuentro = {};
 
+  // lat/lng EXACTOS del origen y destino elegidos con el Autocomplete de ciudades (20 ago 2026) —
+  // Google ya nos los da al elegir la ciudad (ver wireAutocompleteCiudad en js/components.js), pero
+  // antes se descartaban y solo se guardaba el nombre. Se mandan en la VISTA PREVIA del precio
+  // (actualizarPreview más abajo) para que el servidor pueda pedirle la distancia a Google Maps por
+  // coordenadas en vez de por nombre de ciudad como texto — evita que nombres repetidos en
+  // Argentina (ej. "San Vicente", que existe en varias provincias, o "General Alvear", que existe
+  // en Mendoza Y en Buenos Aires) resuelvan a la localidad equivocada o no encuentren ruta. Al
+  // PUBLICAR de verdad (submit, más abajo) se manda algo todavía más preciso: las coordenadas del
+  // punto de encuentro exacto (obligatorio en origen/destino, ver más abajo), no solo el centro de
+  // la ciudad. Si el buscador de ciudades cayó al modo de lista fija (sin Google Maps), estas
+  // quedan vacías y el servidor sigue usando el nombre como texto para la vista previa, igual que
+  // siempre — el punto de encuentro (que no depende de esta key) sigue garantizando coordenadas
+  // exactas al publicar de todos modos.
+  const ciudadesCoords = {};
+
   // Ciudades intermedias elegidas — array de nombres, en el orden en que se agregaron. Es la
   // fuente de verdad en modo Google Maps (chips, ver mejorarConGoogleMaps más abajo); en modo
   // fallback (sin Maps) se ignora y se parsea el texto del input viejo en su lugar.
@@ -626,7 +641,8 @@ function viewPublicar(app) {
   function mejorarCampoCiudad(name) {
     const cont = form.querySelector(`[data-ciudad-field="${name}"]`);
     if (!cont) return;
-    reemplazarSelectPorAutocompleteCiudad(cont, name, () => {
+    reemplazarSelectPorAutocompleteCiudad(cont, name, (lugar) => {
+      ciudadesCoords[name] = { lat: lugar.lat, lng: lugar.lng };
       renderPuntosEncuentroContainer();
       actualizarPreview();
     });
@@ -715,6 +731,8 @@ function viewPublicar(app) {
       const calc = await Api.post("/api/pricing/calcular", {
         ...ciudades,
         asientos_totales: Number(fd.get("asientos_totales")) || 3,
+        origen_coords: ciudadesCoords.origen_ciudad || null,
+        destino_coords: ciudadesCoords.destino_ciudad || null,
       });
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
@@ -766,10 +784,17 @@ function viewPublicar(app) {
     // fallback de siempre en pantallas viejas) ahora sale directo del punto de encuentro elegido
     // para el origen, en vez de ser un campo de texto aparte — un solo lugar donde se elige.
     const puntoOrigen = puntosEncuentro[ciudades.origen_ciudad];
+    const puntoDestino = puntosEncuentro[ciudades.destino_ciudad];
     const payload = {
       conductor_id: user.id,
       origen_direccion: puntoOrigen.direccion || puntoOrigen.nombre,
       ...ciudades,
+      // Coordenadas exactas del punto de encuentro (más precisas que el centro de la ciudad, y
+      // disponibles siempre porque ahora son obligatorias — ver arriba) para que el servidor pida
+      // la distancia a Google Maps sin ambigüedad de nombres de ciudad repetidos. Ver
+      // server/maps.js distanciaKmEntreCiudades.
+      origen_coords: { lat: puntoOrigen.lat, lng: puntoOrigen.lng },
+      destino_coords: { lat: puntoDestino.lat, lng: puntoDestino.lng },
       ciudades_intermedias: intermedias,
       puntos_encuentro: puntosEncuentroAEnviar,
       fecha_salida: fd.get("fecha_salida"),
