@@ -587,6 +587,16 @@ function viewPublicar(app) {
   // exactas al publicar de todos modos.
   const ciudadesCoords = {};
 
+  // lat/lng de CUALQUIER ciudad del camino (origen, destino, o una intermedia detectada
+  // automáticamente) — keyeado por nombre exacto de ciudad, 20 ago 2026. A diferencia de
+  // `ciudadesCoords` (que solo guarda origen_ciudad/destino_ciudad, para el precio), esto alimenta
+  // el CENTRO INICIAL del mapa interactivo de cada tarjeta de "punto de encuentro"
+  // (puntoEncuentroEditarHtml `centroInicial`, ver js/components.js montarMapaInteractivo) — así el
+  // mapa arranca centrado en la ciudad correspondiente en vez de en el centro de Argentina entera.
+  // Se completa en mejorarCampoCiudad (origen/destino, desde el Autocomplete) y en
+  // intentarDetectarRuta (intermedias, desde la detección automática de ruta) más abajo.
+  const coordsPorCiudad = {};
+
   // Ciudades intermedias elegidas — array de nombres, en el orden en que se agregaron. Es la
   // fuente de verdad en modo Google Maps (chips, ver mejorarConGoogleMaps más abajo); en modo
   // fallback (sin Maps) se ignora y se parsea el texto del input viejo en su lugar.
@@ -616,7 +626,7 @@ function viewPublicar(app) {
     // las ciudades intermedias siguen siendo opcionales, con la entrada a la ciudad o una estación
     // de servicio como sugerencia por defecto (ver hint de puntoEncuentroEditarHtml).
     cont.innerHTML = ciudadesUnicas
-      .map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c], c === origen_ciudad || c === destino_ciudad))
+      .map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c], c === origen_ciudad || c === destino_ciudad, coordsPorCiudad[c]))
       .join("");
     wirePuntosEncuentro(cont, puntosEncuentro);
   }
@@ -643,7 +653,8 @@ function viewPublicar(app) {
     if (!cont) return;
     reemplazarSelectPorAutocompleteCiudad(cont, name, (lugar) => {
       ciudadesCoords[name] = { lat: lugar.lat, lng: lugar.lng };
-      renderPuntosEncuentroContainer();
+      coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
+      intentarDetectarRuta();
       actualizarPreview();
     });
   }
@@ -692,6 +703,75 @@ function viewPublicar(app) {
     ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
   }
 
+  // Detección AUTOMÁTICA de ciudades intermedias a partir de la ruta real entre origen y destino
+  // (20 ago 2026, a pedido explícito del usuario: "NO QUIERO QUE EL CHOFER TENGA QUE AGREGAR LA
+  // CIUDAD INTERMEDIA, QUE LO TOME DE GOOGLE MAPS SOLO LA APLICACION, SEGUN LA RUTA QUE ELIJA EL
+  // CHOFER"). Se dispara cada vez que hay coordenadas exactas de origen Y destino (ciudadesCoords,
+  // ver mejorarCampoCiudad) — le pide a GET /api/lugares/ruta (Directions + Geocoding inverso, ver
+  // server/maps.js ciudadesEnRuta) las ciudades reales del camino. Si funciona, muestra un checklist
+  // (ciudadesRutaChecklistHtml/wireCiudadesRutaChecklist en js/components.js) con todas tildadas
+  // por default — el conductor solo tiene que destildar lo que no quiera, nunca escribir ni buscar
+  // nada. Si la detección no está disponible (Directions/Geocoding APIs sin habilitar en Google
+  // Cloud, error puntual, etc.), cae al buscador manual de chips de siempre (mejorarCampoIntermedias)
+  // — nunca bloquea la publicación por esto.
+  //
+  // Nota de diseño: si el conductor ya revisó/destildó ciudades y después cambia origen o destino
+  // de nuevo, se vuelve a detectar todo de cero (se pierde lo que había destildado) — es más simple
+  // y consistente que tratar de "adivinar" qué mantener cuando cambió la ruta real; como de todos
+  // modos hay que revisar el checklist antes de publicar, no es un problema en la práctica.
+  let rutaDetectadaToken = 0; // evita que una respuesta vieja pise una más nueva si el conductor cambia de ciudad rápido
+  async function intentarDetectarRuta() {
+    const cont = form.querySelector("[data-intermedias-field]");
+    if (!cont) return;
+    const origenCoords = ciudadesCoords.origen_ciudad;
+    const destinoCoords = ciudadesCoords.destino_ciudad;
+    if (!origenCoords || !destinoCoords) {
+      cont.innerHTML = `<label>Ciudades intermedias</label>
+        <p class="muted" style="font-size:0.85rem">Elegí origen y destino de la lista de sugerencias — detectamos solas las ciudades del camino real entre las dos.</p>`;
+      return;
+    }
+    const miToken = ++rutaDetectadaToken;
+    cont.innerHTML = `<label>Ciudades intermedias</label>
+      <p class="muted" style="font-size:0.85rem">🌎 Buscando las ciudades de tu ruta…</p>`;
+    const origenCiudad = form.querySelector('[name="origen_ciudad"]').value;
+    const destinoCiudad = form.querySelector('[name="destino_ciudad"]').value;
+    let resp;
+    try {
+      resp = await Api.get(
+        `/api/lugares/ruta?origen_lat=${origenCoords.lat}&origen_lng=${origenCoords.lng}` +
+          `&destino_lat=${destinoCoords.lat}&destino_lng=${destinoCoords.lng}` +
+          `&origen_ciudad=${encodeURIComponent(origenCiudad)}&destino_ciudad=${encodeURIComponent(destinoCiudad)}`
+      );
+    } catch {
+      resp = { disponible: false, ciudades: [] };
+    }
+    if (miToken !== rutaDetectadaToken || !cont.isConnected) return; // llegó tarde, ya no aplica más
+
+    if (!resp.disponible) {
+      mejorarCampoIntermedias();
+      return;
+    }
+
+    intermediasCiudades.length = 0;
+    intermediasCiudades.push(...resp.ciudades.map((c) => c.nombre));
+    ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
+    resp.ciudades.forEach((c) => {
+      coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng };
+    });
+
+    cont.innerHTML = `<label>Ciudades intermedias</label>
+      <small class="hint">Detectamos estas localidades en el camino real entre ${escapeHtml(origenCiudad)} y ${escapeHtml(destinoCiudad)} — destildá las que no quieras que aparezcan en las búsquedas de otros pasajeros. No hace falta agregar ninguna a mano.</small>
+      <div id="ciudades-ruta-checklist" style="margin-top:6px"></div>`;
+    const checklistCont = cont.querySelector("#ciudades-ruta-checklist");
+    checklistCont.innerHTML = ciudadesRutaChecklistHtml(resp.ciudades);
+    wireCiudadesRutaChecklist(checklistCont, resp.ciudades, (seleccionadas) => {
+      intermediasCiudades.length = 0;
+      intermediasCiudades.push(...seleccionadas.map((c) => c.nombre));
+      renderPuntosEncuentroContainer();
+    });
+    renderPuntosEncuentroContainer();
+  }
+
   // Nota: el "punto de partida exacto" ya NO es un campo de texto aparte (ver más abajo, submit) —
   // se toma directo del punto de encuentro que el conductor elige para la ciudad de origen en el
   // buscador de "Puntos de encuentro" de arriba (obligatorio), así hay un solo lugar donde elegirlo
@@ -708,7 +788,7 @@ function viewPublicar(app) {
     if (!form.isConnected) return; // el usuario pudo haber navegado a otra vista mientras cargaba
     mejorarCampoCiudad("origen_ciudad");
     mejorarCampoCiudad("destino_ciudad");
-    mejorarCampoIntermedias();
+    intentarDetectarRuta(); // muestra el placeholder correcto, o dispara la detección si ya hay coords
     mapsStatus.remove();
   }
   mejorarConGoogleMaps();

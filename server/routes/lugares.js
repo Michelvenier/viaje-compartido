@@ -1,17 +1,18 @@
 // server/routes/lugares.js — Búsqueda de lugares reales (estaciones de servicio, terminales,
-// plazas, etc.) para elegir el punto de encuentro exacto de un viaje, y entrega de la clave de
-// Google Maps para uso en el navegador (ver mapsKey más abajo).
+// plazas, etc.) para elegir el punto de encuentro exacto de un viaje, detección automática de las
+// ciudades intermedias de una ruta (ver ruta() más abajo), y entrega de la clave de Google Maps
+// para uso en el navegador (ver mapsKey más abajo).
 //
-// Hasta el 20 ago 2026, esta búsqueda pasaba SIEMPRE por este endpoint propio para que ninguna key
-// de Google llegara al navegador. Ese día el usuario pidió explícitamente lo contrario ("Necesito
-// conectar todo a google maps y que sea todo a partir de eso... si se ve la clave la
+// Hasta el 20 ago 2026, la búsqueda de lugares pasaba SIEMPRE por este endpoint propio para que
+// ninguna key de Google llegara al navegador. Ese día el usuario pidió explícitamente lo contrario
+// ("Necesito conectar todo a google maps y que sea todo a partir de eso... si se ve la clave la
 // restringiremos de alguna manera, porque tengo mil problemas sin google maps"): ahora el
-// navegador SÍ usa la API de JavaScript de Google Maps directamente (Autocomplete real, con mapa
-// interactivo) para origen, destino, ciudades intermedias y el punto de partida — ver
-// js/maps-loader.js y GOOGLE_MAPS_BROWSER_KEY más abajo. Esta búsqueda por texto server-side se
-// deja como está (no rompe nada) para el buscador de puntos de encuentro por ciudad ya construido
-// (ver js/components.js puntoEncuentroEditarHtml) — sigue funcionando igual, sin necesitar la key
-// del navegador.
+// navegador SÍ usa la API de JavaScript de Google Maps directamente (Autocomplete real para elegir
+// origen, destino y ciudades intermedias a mano si hace falta) — ver js/maps-loader.js y
+// GOOGLE_MAPS_BROWSER_KEY más abajo. Esta búsqueda de lugares por texto (buscar()) y la detección
+// de ciudades en ruta (ruta()) siguen siendo server-side (usan GOOGLE_MAPS_API_KEY, no la key del
+// navegador) porque llaman a APIs de Google que no tienen versión "cliente" en la librería de
+// JavaScript (Places Text Search, Directions, Geocoding inverso).
 "use strict";
 
 const maps = require("../maps");
@@ -26,6 +27,25 @@ async function buscar(req, res, params, query) {
   if (!q) return badRequest(res, "Escribí qué lugar buscás (ej. una estación de servicio o una plaza).");
   const resultados = await maps.buscarLugares(q);
   ok(res, { resultados });
+}
+
+// GET /api/lugares/ruta?origen_lat=...&origen_lng=...&destino_lat=...&destino_lng=...&origen_ciudad=
+// ...&destino_ciudad=... — a pedido del usuario (20 ago 2026): calcula automáticamente las
+// ciudades por las que pasa la ruta real entre origen y destino (Directions + Geocoding inverso,
+// ver server/maps.js ciudadesEnRuta), para que el conductor NO tenga que agregarlas a mano. Sin
+// sesión a propósito, mismo criterio que buscar()/mapsKey() de acá arriba/abajo. Devuelve
+// { disponible, ciudades } — ver el comentario de ciudadesEnRuta en server/maps.js para el
+// significado exacto de cada caso; el frontend (js/views.js viewPublicar) cae al modo manual de
+// siempre cuando disponible=false.
+async function ruta(req, res, params, query) {
+  const num = (v) => (v === undefined || v === null || v === "" ? NaN : Number(v));
+  const origenCoords = { lat: num(query.origen_lat), lng: num(query.origen_lng) };
+  const destinoCoords = { lat: num(query.destino_lat), lng: num(query.destino_lng) };
+  if (Number.isNaN(origenCoords.lat) || Number.isNaN(origenCoords.lng) || Number.isNaN(destinoCoords.lat) || Number.isNaN(destinoCoords.lng)) {
+    return badRequest(res, "Faltan las coordenadas de origen y/o destino.");
+  }
+  const resultado = await maps.ciudadesEnRuta(origenCoords, destinoCoords, query.origen_ciudad, query.destino_ciudad);
+  ok(res, resultado);
 }
 
 // GET /api/lugares/maps-key — entrega la clave de Google Maps para uso EN EL NAVEGADOR (carga de
@@ -47,4 +67,4 @@ async function mapsKey(req, res) {
   ok(res, { apiKey: process.env.GOOGLE_MAPS_BROWSER_KEY || null });
 }
 
-module.exports = { buscar, mapsKey };
+module.exports = { buscar, ruta, mapsKey };

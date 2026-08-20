@@ -215,18 +215,25 @@ function wireChips(root = document) {
 
 // ---------------------------------------------------------------------------
 // PUNTO DE ENCUENTRO — buscador de lugares reales (Google Places, vía nuestro propio endpoint
-// server/routes/lugares.js, para que la key de Google nunca llegue al navegador) + mapa de solo
-// lectura embebido SIN key (parámetro "output=embed"), a pedido del usuario (19 ago 2026): "que
-// seleccione el punto de encuentro en google maps y que le aparezca al usuario los puntos de
-// encuentro... que se seleccione y vea todo en google map" (20 ago 2026: a pedido del usuario, este
-// archivo — que se sirve tal cual al navegador, sin build step — no debe mencionar marcas de la
-// competencia en ningún comentario ni texto visible, aunque el usuario las nombre en el chat).
+// server/routes/lugares.js, para que la key server-side de Google nunca llegue al navegador) + un
+// mapa interactivo con pin arrastrable para elegir o afinar el lugar exacto (20 ago 2026, a pedido
+// del usuario: "Quiero que el origen y destino sea seleccionable en google maps, osea interactivo
+// dentro de la app"; este archivo se sirve tal cual al navegador, sin build step, así que no debe
+// mencionar marcas de la competencia en ningún comentario ni texto visible, aunque el usuario las
+// nombre en el chat).
 //
-// Por qué no hay un mapa "de verdad" con pin arrastrable: eso requiere la API de JavaScript de
-// Google Maps, que sí necesita una key visible en el navegador — el usuario pidió explícitamente
-// evitar exponer una key ahí. Este enfoque (buscar por texto en el servidor + mostrar el resultado
-// en un iframe embebido de solo lectura) da la misma experiencia de elegir y ver el lugar en
-// Google Maps, sin ese riesgo.
+// Hasta el 20 ago 2026 esto era un iframe de Google Maps SIN key (solo lectura, sin pin
+// arrastrable) porque en ese momento el usuario quería evitar exponer una key en el navegador. Ese
+// mismo día pidió lo contrario ("si se ve la clave la restringiremos de alguna manera, porque tengo
+// mil problemas sin google maps"), así que ahora el mapa de ESTA tarjeta (la que usa el conductor
+// para elegir el punto, ver puntoEncuentroEditarHtml/wirePuntosEncuentro) es un
+// google.maps.Map + google.maps.Marker de verdad (montarMapaInteractivo), con GOOGLE_MAPS_BROWSER_KEY
+// (restringida por dominio, ver js/maps-loader.js). Si esa API no carga (key no configurada
+// todavía, sin conexión, etc.) cae automáticamente al iframe embebido de siempre — nunca bloquea la
+// publicación por esto. La vista de SOLO LECTURA que ve el pasajero (o el conductor revisando una
+// solicitud ya hecha, ver puntoEncuentroVerHtml/mapaEmbedHtml) sigue siendo el iframe sin key a
+// propósito: no hace falta interactividad ahí, y así esas pantallas no dependen de que la API de
+// JavaScript esté disponible.
 // ---------------------------------------------------------------------------
 
 // Iframe de Google Maps sin key, centrado en un lat/lng puntual. Funciona con cualquier cuenta
@@ -268,8 +275,20 @@ function puntosEncuentroReservaHtml(r) {
     ${destinoHtml ? `<p class="muted" style="margin:8px 0 0;font-size:0.8rem">📍 Punto de encuentro en ${escapeHtml(destinoCiudad)}:</p>${destinoHtml}` : ""}`;
 }
 
+// Info de solo texto (nombre + dirección) del punto ya elegido, para mostrar DEBAJO del mapa
+// interactivo en la tarjeta de edición — a diferencia de puntoEncuentroVerHtml, esta versión no
+// incluye el iframe (el mapa de arriba ya lo reemplaza en la tarjeta editable, ver
+// puntoEncuentroEditarHtml/wirePuntosEncuentro más abajo).
+function puntoEncuentroInfoHtml(punto) {
+  if (!punto || !punto.nombre) return "";
+  return `<div class="punto-encuentro-ver" style="margin-top:6px">
+    <div style="font-weight:600">📍 ${escapeHtml(punto.nombre)}</div>
+    ${punto.direccion ? `<div class="muted" style="font-size:.9em">${escapeHtml(punto.direccion)}</div>` : ""}
+  </div>`;
+}
+
 // Tarjeta EDITABLE de "punto de encuentro" (para cuando el conductor está publicando un viaje):
-// buscador de texto + lista de resultados + previsualización del lugar elegido, para una ciudad
+// mapa interactivo (tocar o arrastrar el pin) + buscador de texto como alternativa, para una ciudad
 // puntual del camino (origen, destino, o una de las intermedias). `ciudad` es la clave exacta que
 // después se usa en viaje.puntos_encuentro; `seleccionado` es el punto ya elegido para esa ciudad
 // en esta sesión de edición, si hay (se preserva al re-renderizar el contenedor completo, ver
@@ -277,52 +296,175 @@ function puntosEncuentroReservaHtml(r) {
 // del usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
 // partida y al punto de llegada") — true para origen y destino (no se puede publicar sin elegir un
 // punto ahí, ver validación en el submit de viewPublicar), false para ciudades intermedias (esas
-// siguen siendo opcionales).
-function puntoEncuentroEditarHtml(ciudad, seleccionado, requerido) {
-  return `<div class="punto-encuentro-editar" data-ciudad="${escapeHtml(ciudad)}" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
+// siguen siendo opcionales). `centroInicial` ({lat,lng}, opcional, 20 ago 2026) es el centro con el
+// que arranca el mapa ANTES de que el conductor elija nada — viene de la ciudad ya geolocalizada
+// por el Autocomplete (origen/destino) o por la detección automática de ruta (intermedias), ver
+// js/views.js coordsPorCiudad; si no hay, el mapa arranca centrado en Argentina entera.
+function puntoEncuentroEditarHtml(ciudad, seleccionado, requerido, centroInicial) {
+  const centroLat = centroInicial && typeof centroInicial.lat === "number" ? centroInicial.lat : "";
+  const centroLng = centroInicial && typeof centroInicial.lng === "number" ? centroInicial.lng : "";
+  return `<div class="punto-encuentro-editar" data-ciudad="${escapeHtml(ciudad)}" data-centro-lat="${centroLat}" data-centro-lng="${centroLng}" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
     <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">${requerido ? "(obligatorio)" : "(opcional)"}</span></label>
     <small class="hint">${
       requerido
-        ? "Buscá y elegí el lugar exacto donde vas a esperar (o dejar) a tus pasajeros acá — una estación de servicio, terminal, plaza, tu casa, etc."
-        : "Buscá un lugar puntual si tu ruta pasa por acá — la entrada a la ciudad o una estación de servicio suelen ser buenas opciones por defecto. Si no elegís nada, queda solo el nombre de la ciudad."
+        ? "Tocá o arrastrá el pin en el mapa para marcar el lugar exacto donde vas a esperar (o dejar) a tus pasajeros — o buscalo por nombre más abajo (una estación de servicio, terminal, plaza, tu casa, etc.)."
+        : "Tocá el mapa o buscá un lugar puntual si tu ruta pasa por acá — la entrada a la ciudad o una estación de servicio suelen ser buenas opciones por defecto. Si no elegís nada, queda solo el nombre de la ciudad."
     }</small>
-    <div class="field-row" style="margin-top:6px">
-      <input type="text" class="pe-buscar-input" placeholder="Ej: YPF Ruta 5, ${escapeHtml(ciudad)}" style="flex:1">
+    <div class="pe-mapa-interactivo" style="width:100%;height:220px;border-radius:8px;margin-top:8px;background:var(--bg-soft,#eee);display:flex;align-items:center;justify-content:center">
+      <span class="muted" style="font-size:.85em">Cargando mapa…</span>
+    </div>
+    <div class="field-row" style="margin-top:8px">
+      <input type="text" class="pe-buscar-input" placeholder="O buscá por nombre: Ej. YPF Ruta 5, ${escapeHtml(ciudad)}" style="flex:1">
       <button type="button" class="btn btn-outline pe-buscar-btn">Buscar</button>
     </div>
     <div class="pe-resultados"></div>
     <div class="pe-seleccionado">${
       seleccionado
-        ? `${puntoEncuentroVerHtml(seleccionado)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
+        ? `${puntoEncuentroInfoHtml(seleccionado)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
         : ""
     }</div>
   </div>`;
 }
 
-// Conecta el buscador de cada tarjeta puntoEncuentroEditarHtml() dentro de `root` con el endpoint
-// /api/lugares/buscar, y guarda la selección en el objeto `puntosEncuentro` (mutado in-place,
-// keyeado por nombre de ciudad) para que el caller lo lea al armar el payload de publicar().
+// Monta un mapa interactivo (google.maps.Map + Marker arrastrable) dentro de `container` para que
+// el conductor elija el punto de encuentro tocando o arrastrando el pin (20 ago 2026, a pedido del
+// usuario). `centro` es {lat,lng} de partida (el punto ya elegido, o el centro de la ciudad si
+// todavía no eligió nada, o null); `puntoInicial` es el punto ya elegido si lo hay (se dibuja el
+// pin ahí de entrada). `onCambiar(punto)` se llama cada vez que el conductor mueve el pin (tocando
+// o arrastrando), con el punto recalculado ({nombre, direccion, lat, lng}) vía reverse geocoding.
+//
+// Devuelve `{ moverPin(punto) }` para que el buscador de texto (wirePuntosEncuentro más abajo)
+// pueda mover el mismo pin cuando el conductor elige un resultado de la búsqueda en vez de tocar el
+// mapa — o `null` si la API de JavaScript de Google Maps no está disponible ahora (key no
+// configurada, sin conexión, etc.), caso en el que el caller tiene que caer al iframe de siempre.
+async function montarMapaInteractivo(container, centro, puntoInicial, onCambiar) {
+  try {
+    await GoogleMapsLoader.listo();
+    if (!window.google || !window.google.maps) throw new Error("Google Maps no disponible");
+    if (!container.isConnected) return null; // el conductor pudo haber navegado a otra vista mientras cargaba
+    const centroMapa = puntoInicial || centro || { lat: -34.6, lng: -64.0 }; // sin nada elegido: centro geográfico aproximado de Argentina
+    const zoomInicial = puntoInicial ? 16 : centro ? 13 : 5;
+    container.innerHTML = "";
+    const mapa = new google.maps.Map(container, {
+      center: centroMapa,
+      zoom: zoomInicial,
+      streetViewControl: false,
+      mapTypeControl: false,
+      fullscreenControl: false,
+    });
+    const geocoder = new google.maps.Geocoder();
+    let marker = puntoInicial ? new google.maps.Marker({ position: puntoInicial, map: mapa, draggable: true }) : null;
+
+    function nombreDireccionDesdeGeocode(resultado, lat, lng) {
+      if (!resultado) return { nombre: `Punto en el mapa (${lat.toFixed(5)}, ${lng.toFixed(5)})`, direccion: "" };
+      const direccion = resultado.formatted_address || "";
+      const nombre = (direccion.split(",")[0] || direccion || "Punto en el mapa").trim();
+      return { nombre, direccion };
+    }
+
+    function atarDrag(m) {
+      m.addListener("dragend", () => {
+        const pos = m.getPosition();
+        moverA(pos.lat(), pos.lng());
+      });
+    }
+
+    async function moverA(lat, lng) {
+      if (!marker) {
+        marker = new google.maps.Marker({ position: { lat, lng }, map: mapa, draggable: true });
+        atarDrag(marker);
+      } else {
+        marker.setPosition({ lat, lng });
+      }
+      mapa.panTo({ lat, lng });
+      let nombre, direccion;
+      try {
+        const { results } = await geocoder.geocode({ location: { lat, lng } });
+        ({ nombre, direccion } = nombreDireccionDesdeGeocode(results && results[0], lat, lng));
+      } catch {
+        ({ nombre, direccion } = nombreDireccionDesdeGeocode(null, lat, lng));
+      }
+      onCambiar({ nombre, direccion, lat, lng });
+    }
+
+    if (marker) atarDrag(marker);
+    mapa.addListener("click", (e) => moverA(e.latLng.lat(), e.latLng.lng()));
+
+    return {
+      moverPin(punto) {
+        if (!punto) {
+          if (marker) {
+            marker.setMap(null);
+            marker = null;
+          }
+          return;
+        }
+        if (!marker) {
+          marker = new google.maps.Marker({ position: { lat: punto.lat, lng: punto.lng }, map: mapa, draggable: true });
+          atarDrag(marker);
+        } else {
+          marker.setPosition({ lat: punto.lat, lng: punto.lng });
+        }
+        mapa.panTo({ lat: punto.lat, lng: punto.lng });
+        mapa.setZoom(16);
+      },
+    };
+  } catch {
+    // Sin API de JavaScript de Google Maps disponible ahora mismo: el caller cae al iframe de
+    // siempre (mapaEmbedHtml), que no depende de esta API y siempre funciona.
+    return null;
+  }
+}
+
+// Conecta cada tarjeta puntoEncuentroEditarHtml() dentro de `root`: monta el mapa interactivo (o
+// cae al iframe de siempre si Google Maps no está disponible), conecta el buscador de texto con el
+// endpoint /api/lugares/buscar como alternativa, y guarda la selección en el objeto
+// `puntosEncuentro` (mutado in-place, keyeado por nombre de ciudad) para que el caller lo lea al
+// armar el payload de publicar().
 function wirePuntosEncuentro(root, puntosEncuentro) {
   root.querySelectorAll(".punto-encuentro-editar").forEach((card) => {
     const ciudad = card.getAttribute("data-ciudad");
     const input = card.querySelector(".pe-buscar-input");
     const btn = card.querySelector(".pe-buscar-btn");
     const resultados = card.querySelector(".pe-resultados");
+    const mapaDiv = card.querySelector(".pe-mapa-interactivo");
     const seleccionadoDiv = card.querySelector(".pe-seleccionado");
+    let moverPin = null; // se completa si el mapa interactivo se monta con éxito (ver más abajo)
+
+    function sinMapaInteractivoHtml(punto) {
+      // Fallback que no depende de la API de JavaScript de Maps — funciona siempre.
+      return punto ? mapaEmbedHtml(punto.lat, punto.lng, 220) : `<p class="muted" style="font-size:.85em;padding:8px">El mapa interactivo no está disponible ahora — usá el buscador de abajo para elegir el lugar.</p>`;
+    }
 
     function mostrarSeleccionado(punto) {
       seleccionadoDiv.innerHTML = punto
-        ? `${puntoEncuentroVerHtml(punto)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
+        ? `${puntoEncuentroInfoHtml(punto)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
         : "";
       const quitarBtn = seleccionadoDiv.querySelector(".pe-quitar-btn");
       if (quitarBtn) {
         quitarBtn.addEventListener("click", () => {
           delete puntosEncuentro[ciudad];
           mostrarSeleccionado(null);
+          if (moverPin) moverPin(null);
+          else mapaDiv.innerHTML = sinMapaInteractivoHtml(null);
         });
       }
     }
     mostrarSeleccionado(puntosEncuentro[ciudad]);
+
+    const centroLat = Number(card.dataset.centroLat);
+    const centroLng = Number(card.dataset.centroLng);
+    const centroInicial = !Number.isNaN(centroLat) && !Number.isNaN(centroLng) ? { lat: centroLat, lng: centroLng } : null;
+
+    montarMapaInteractivo(mapaDiv, centroInicial, puntosEncuentro[ciudad] || null, (punto) => {
+      puntosEncuentro[ciudad] = punto;
+      mostrarSeleccionado(punto);
+      resultados.innerHTML = "";
+      input.value = "";
+    }).then((api) => {
+      if (api) moverPin = api.moverPin;
+      else mapaDiv.innerHTML = sinMapaInteractivoHtml(puntosEncuentro[ciudad] || null);
+    });
 
     async function buscar() {
       const q = input.value.trim();
@@ -347,6 +489,8 @@ function wirePuntosEncuentro(root, puntosEncuentro) {
             const punto = lugares[Number(el.getAttribute("data-idx"))];
             puntosEncuentro[ciudad] = punto;
             mostrarSeleccionado(punto);
+            if (moverPin) moverPin(punto);
+            else mapaDiv.innerHTML = sinMapaInteractivoHtml(punto);
             resultados.innerHTML = "";
             input.value = "";
           });
@@ -361,6 +505,43 @@ function wirePuntosEncuentro(root, puntosEncuentro) {
         e.preventDefault();
         buscar();
       }
+    });
+  });
+}
+
+// Checklist de ciudades DETECTADAS AUTOMÁTICAMENTE en la ruta real entre origen y destino (20 ago
+// 2026, a pedido del usuario: "NO QUIERO QUE EL CHOFER TENGA QUE AGREGAR LA CIUDAD INTERMEDIA, QUE
+// LO TOME DE GOOGLE MAPS SOLO LA APLICACION, SEGUN LA RUTA QUE ELIJA EL CHOFER"). `ciudades` es el
+// array {nombre, lat, lng} que devolvió GET /api/lugares/ruta (server/maps.js ciudadesEnRuta), ya
+// en el orden real en que se encuentran yendo de origen a destino. Todas arrancan tildadas — el
+// conductor puede destildar las que no quiera que aparezcan en las búsquedas de otros pasajeros
+// (ver wireCiudadesRutaChecklist), pero nunca tiene que escribir ni buscar nada a mano.
+function ciudadesRutaChecklistHtml(ciudades) {
+  if (!ciudades.length) {
+    return `<p class="muted" style="font-size:0.85rem">No detectamos ninguna localidad en el camino directo entre estas dos ciudades (puede ser un viaje corto, o pasar por zona rural) — está bien, se puede publicar igual.</p>`;
+  }
+  return `<div class="ciudades-ruta-checklist">
+    ${ciudades
+      .map(
+        (c, i) => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+          <input type="checkbox" class="ciudad-ruta-check" data-idx="${i}" checked>
+          <span>${escapeHtml(c.nombre)}</span>
+        </label>`
+      )
+      .join("")}
+  </div>`;
+}
+
+// Ata los checkboxes de ciudadesRutaChecklistHtml() dentro de `root` — cada vez que el conductor
+// tilda/destilda una, llama a `onChange` con el array (subconjunto de `ciudades`, mismo orden) de
+// las que quedaron tildadas.
+function wireCiudadesRutaChecklist(root, ciudades, onChange) {
+  root.querySelectorAll(".ciudad-ruta-check").forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const seleccionadas = [...root.querySelectorAll(".ciudad-ruta-check")]
+        .filter((c) => c.checked)
+        .map((c) => ciudades[Number(c.dataset.idx)]);
+      onChange(seleccionadas);
     });
   });
 }

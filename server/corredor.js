@@ -106,24 +106,47 @@ function caminoDelViaje(viaje) {
   return [viaje.origen_ciudad, ...intermedias, viaje.destino_ciudad];
 }
 
+// Normaliza un nombre de ciudad para COMPARAR (nunca para guardar ni mostrar): minúsculas, sin
+// espacios de sobra, sin acentos. Se agregó el 20 ago 2026 porque la comparación exacta
+// (origen === camino[i]) fallaba en el buscador de "Buscar viaje" cuando lo que tipeaba el
+// pasajero no coincidía carácter por carácter con el nombre exacto que había cargado el conductor
+// — ej. buscar "pehuajo" (sin tilde) no encontraba un viaje con destino "Pehuajó" (con tilde),
+// aunque el filtro ILIKE de la consulta SQL sí los había traído como candidatos; resolverTramo los
+// descartaba después por esta comparación exacta. Con acentos y mayúsculas normalizados, "Pehuajó",
+// "pehuajo" y "PEHUAJÓ" comparan igual.
+function normalizarCiudad(s) {
+  return (s || "")
+    .toString()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 // Valida que un tramo pedido (origenPedido -> destinoPedido) sea parte del camino real de un viaje
 // Y respete el sentido en que viaja el conductor — no se puede reservar "al revés" (ej. un viaje
 // La Plata -> Pehuajó no puede reservarse como Pehuajó -> 9 de Julio, aunque las dos ciudades estén
 // en el camino). Si no se pide un tramo puntual (faltan origenPedido y/o destinoPedido), devuelve
-// el viaje completo — mismo comportamiento que siempre tuvo la app antes de este cambio.
+// el viaje completo — mismo comportamiento que siempre tuvo la app antes de este cambio. La
+// comparación con el camino real es normalizada (ver normalizarCiudad) pero lo que se DEVUELVE es
+// siempre el nombre canónico tal cual está guardado en el viaje (camino[idx]), nunca lo que haya
+// tipeado o mandado quien pide el tramo — así el nombre que después se usa para calcular la
+// distancia/precio y para mostrarle al usuario es siempre el mismo que cargó el conductor.
 function resolverTramo(camino, origenPedido, destinoPedido) {
-  const origen = (origenPedido || camino[0] || "").trim();
-  const destino = (destinoPedido || camino[camino.length - 1] || "").trim();
-  const idxOrigen = camino.findIndex((c) => c === origen);
-  const idxDestino = camino.findIndex((c) => c === destino);
-  if (idxOrigen === -1) return { error: `"${origen}" no es parte de la ruta de este viaje.` };
-  if (idxDestino === -1) return { error: `"${destino}" no es parte de la ruta de este viaje.` };
+  const origenBuscado = (origenPedido || camino[0] || "").trim();
+  const destinoBuscado = (destinoPedido || camino[camino.length - 1] || "").trim();
+  const idxOrigen = camino.findIndex((c) => normalizarCiudad(c) === normalizarCiudad(origenBuscado));
+  const idxDestino = camino.findIndex((c) => normalizarCiudad(c) === normalizarCiudad(destinoBuscado));
+  if (idxOrigen === -1) return { error: `"${origenBuscado}" no es parte de la ruta de este viaje.` };
+  if (idxDestino === -1) return { error: `"${destinoBuscado}" no es parte de la ruta de este viaje.` };
   if (idxOrigen >= idxDestino) {
     return {
       error: `Ese tramo no respeta el sentido del viaje (el conductor va de "${camino[0]}" a "${camino[camino.length - 1]}").`,
     };
   }
-  const esCompleto = origen === camino[0] && destino === camino[camino.length - 1];
+  const origen = camino[idxOrigen];
+  const destino = camino[idxDestino];
+  const esCompleto = idxOrigen === 0 && idxDestino === camino.length - 1;
   return { origen, destino, esCompleto };
 }
 
