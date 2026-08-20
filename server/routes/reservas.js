@@ -99,9 +99,6 @@ async function crear(req, res) {
   }
 
   const asientos = Math.max(1, Number(body.asientos_reservados) || 1);
-  if (asientos > viaje.asientos_disponibles) {
-    return badRequest(res, `Solo quedan ${viaje.asientos_disponibles} asiento(s) disponibles en este viaje.`);
-  }
 
   // Tramo del pasajero dentro del viaje (a pedido del usuario, 19 ago 2026): si el conductor va,
   // por ejemplo, de La Plata a Pehuajó pasando por 9 de Julio, un pasajero puede reservar solo el
@@ -111,6 +108,34 @@ async function crear(req, res) {
   const camino = corredor.caminoDelViaje(viaje);
   const tramo = corredor.resolverTramo(camino, body.origen_ciudad, body.destino_ciudad);
   if (tramo.error) return badRequest(res, tramo.error);
+
+  // Disponibilidad de asientos POR TRAMO (20 ago 2026, a pedido del usuario: "yo viajo de pehuajo a
+  // la plata con 4 lugares, ocupo 3 y despues un pasajero ocupa de pehuajo a 9 de julio, entonces
+  // otro puede subir en 9 de julio a la plata o de 9 de julio a donde quiera" — ver la explicación
+  // completa del bug y el fix en corredor.js asientosLibresPorTramoElemental). Reemplaza el viejo
+  // chequeo contra `viaje.asientos_disponibles` (un único contador para TODO el viaje), que
+  // rechazaba mal reservas para tramos más adelante en la ruta cuando alguien ya había reservado un
+  // tramo parcial más atrás, aunque ese asiento ya estuviera libre para el tramo nuevo. Se cuentan
+  // como "ocupando" las reservas pendientes, aceptadas y completadas — las pendientes también,
+  // para no dejar que dos solicitudes que se pisan en la ruta superen la capacidad real del auto
+  // mientras el conductor todavía no las resolvió.
+  const reservasQueOcupan = await db.all(
+    `SELECT tramo_origen_ciudad, tramo_destino_ciudad, asientos_reservados FROM reservas
+     WHERE viaje_id = ? AND estado IN ('pendiente','aceptada','completada')`,
+    [viaje.id]
+  );
+  const idxOrigenTramo = camino.indexOf(tramo.origen);
+  const idxDestinoTramo = camino.indexOf(tramo.destino);
+  const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, viaje.asientos_totales, reservasQueOcupan);
+  const libresEnEsteTramo = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigenTramo, idxDestinoTramo);
+  if (asientos > libresEnEsteTramo) {
+    return badRequest(
+      res,
+      libresEnEsteTramo > 0
+        ? `Solo quedan ${libresEnEsteTramo} asiento(s) disponibles para el tramo ${tramo.origen} → ${tramo.destino}.`
+        : `Ya no quedan asientos disponibles para el tramo ${tramo.origen} → ${tramo.destino}.`
+    );
+  }
 
   // El precio NUNCA se recibe del cliente (ni siquiera el que mostró la vista previa) — se
   // recalcula acá mismo en el servidor, igual que /api/viajes/:id/desglose-reserva, para que nadie
@@ -235,8 +260,24 @@ async function cambiarEstado(req, res, params) {
       );
     }
     const viaje = await db.get("SELECT * FROM viajes WHERE id = ?", [reserva.viaje_id]);
-    if (viaje.asientos_disponibles < reserva.asientos_reservados) {
-      return badRequest(res, "Ya no quedan suficientes asientos disponibles.");
+
+    // Mismo chequeo POR TRAMO que crear() (ver corredor.js asientosLibresPorTramoElemental y el
+    // comentario en reservas.crear() más arriba) — reemplaza el viejo chequeo contra el contador
+    // global `viaje.asientos_disponibles`. Se excluye ESTA reserva de la lista de "las que ocupan"
+    // porque ya está pendiente y se contaría dos veces (una como ocupación existente y otra como la
+    // que se está por aceptar) si no se excluye.
+    const camino = corredor.caminoDelViaje(viaje);
+    const otrasReservasQueOcupan = await db.all(
+      `SELECT tramo_origen_ciudad, tramo_destino_ciudad, asientos_reservados FROM reservas
+       WHERE viaje_id = ? AND id != ? AND estado IN ('pendiente','aceptada','completada')`,
+      [reserva.viaje_id, reserva.id]
+    );
+    const idxOrigenReserva = camino.indexOf(reserva.tramo_origen_ciudad || viaje.origen_ciudad);
+    const idxDestinoReserva = camino.indexOf(reserva.tramo_destino_ciudad || viaje.destino_ciudad);
+    const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, viaje.asientos_totales, otrasReservasQueOcupan);
+    const libresEnEsteTramo = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigenReserva, idxDestinoReserva);
+    if (libresEnEsteTramo < reserva.asientos_reservados) {
+      return badRequest(res, "Ya no quedan suficientes asientos disponibles para el tramo de esta reserva.");
     }
     await db.run("UPDATE viajes SET asientos_disponibles = asientos_disponibles - ? WHERE id = ?", [
       reserva.asientos_reservados,

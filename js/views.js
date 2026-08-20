@@ -340,6 +340,7 @@ async function viewDetalle(app, params) {
             </select>
           </div>
         </div>
+        <div id="asientos-tramo-aviso"></div>
         <div id="comision-preview" class="info-box" style="margin-bottom:14px">Calculando la comisión…</div>
         <div class="info-box" style="margin-bottom:14px">
           📌 <strong>Política de cancelación:</strong> con 24 hs o más de anticipación a la salida, cancelás sin costo (o con reembolso
@@ -390,6 +391,32 @@ async function viewDetalle(app, params) {
       });
     }
 
+    const avisoTramo = app.querySelector("#asientos-tramo-aviso");
+    const btnSolicitar = app.querySelector("#form-reserva button[type=submit]");
+
+    // Repuebla el <select> de asientos según la disponibilidad REAL del tramo elegido (no la del
+    // viaje completo) — a pedido del usuario (20 ago 2026, ver corredor.js
+    // asientosLibresPorTramoElemental): un tramo que pasa por un segmento ya lleno puede tener
+    // menos lugares que el máximo del viaje, aunque OTRO tramo del mismo viaje todavía tenga lugar.
+    // Se llama con el número real que devuelve el server en cada desglose (asientosDisponiblesTramo),
+    // así el pasajero nunca puede pedir más asientos de los que en verdad quedan para SU tramo.
+    function repoblarSelectAsientos(disponibles) {
+      const actual = Number(selectAsientos.value) || 1;
+      if (disponibles < 1) {
+        selectAsientos.innerHTML = `<option value="1">1</option>`;
+        selectAsientos.disabled = true;
+        avisoTramo.innerHTML = `<div class="info-box" style="border-color:var(--danger);color:var(--danger)">Ya no quedan asientos disponibles para este tramo.</div>`;
+        btnSolicitar.disabled = true;
+        return;
+      }
+      selectAsientos.disabled = false;
+      btnSolicitar.disabled = false;
+      avisoTramo.innerHTML = "";
+      selectAsientos.innerHTML = Array.from({ length: disponibles }, (_, i) => i + 1)
+        .map((n) => `<option value="${n}" ${n === Math.min(actual, disponibles) ? "selected" : ""}>${n}</option>`)
+        .join("");
+    }
+
     async function actualizarComisionPreview() {
       const asientos = Number(selectAsientos.value) || 1;
       const cont = app.querySelector("#comision-preview");
@@ -400,6 +427,13 @@ async function viewDetalle(app, params) {
       }
       try {
         const desglose = await Api.post(`/api/viajes/${viaje.id}/desglose-reserva`, body);
+        if (typeof desglose.asientosDisponiblesTramo === "number") {
+          repoblarSelectAsientos(desglose.asientosDisponiblesTramo);
+        }
+        if (desglose.asientosDisponiblesTramo === 0) {
+          cont.innerHTML = "";
+          return;
+        }
         cont.innerHTML = `
           ${
             !desglose.tramoCompleto
@@ -648,12 +682,25 @@ function viewPublicar(app) {
 
   // Reemplaza el <select> de una ciudad por un <input> con Autocomplete real de Google Maps
   // (restringido a ciudades de Argentina) — usa el helper compartido de js/components.js.
+  //
+  // Fix (20 ago 2026): elegir una ciudad acá asigna el valor del input a mano (no es un <select>
+  // nativo, así que nunca dispara un evento "change" del DOM) — antes, la tarjeta de "Puntos de
+  // encuentro" (con su mapa) solo se volvía a armar como efecto SECUNDARIO de que
+  // intentarDetectarRuta() terminara bien, y esa función corta temprano (sin renderizar nada de
+  // "Puntos de encuentro") mientras falte la coordenada de la OTRA ciudad. Resultado real que
+  // reportó el usuario: si elegía origen y todavía no había elegido destino (o al revés), la
+  // tarjeta de "Puntos de encuentro" del que sí eligió quedaba mostrada, pero la del que faltaba
+  // nunca aparecía — parecía que el mapa interactivo "solo estaba en origen". Ahora
+  // `renderPuntosEncuentroContainer()` se llama directo acá, siempre, apenas se elige una ciudad
+  // real — así las tarjetas (con su mapa) se arman de una para cualquiera de las dos ciudades, sin
+  // depender de que la otra ya esté lista.
   function mejorarCampoCiudad(name) {
     const cont = form.querySelector(`[data-ciudad-field="${name}"]`);
     if (!cont) return;
     reemplazarSelectPorAutocompleteCiudad(cont, name, (lugar) => {
       ciudadesCoords[name] = { lat: lugar.lat, lng: lugar.lng };
       coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
+      renderPuntosEncuentroContainer();
       intentarDetectarRuta();
       actualizarPreview();
     });
@@ -725,9 +772,14 @@ function viewPublicar(app) {
     if (!cont) return;
     const origenCoords = ciudadesCoords.origen_ciudad;
     const destinoCoords = ciudadesCoords.destino_ciudad;
+    // A pedido del usuario (20 ago 2026), acá no se muestra ningún texto explicativo mientras
+    // todavía falta la coordenada de origen o destino — antes decía "Elegí origen y destino de la
+    // lista de sugerencias..." y quedaba pegado en pantalla (a veces por más tiempo del esperado,
+    // ver el fix de arriba en mejorarCampoCiudad) aunque los dos campos ya tuvieran texto cargado,
+    // lo cual confundía. Apenas las dos coordenadas están listas, esto se reemplaza solo por el
+    // checklist de abajo (o el buscador manual si la detección no está disponible).
     if (!origenCoords || !destinoCoords) {
-      cont.innerHTML = `<label>Ciudades intermedias</label>
-        <p class="muted" style="font-size:0.85rem">Elegí origen y destino de la lista de sugerencias — detectamos solas las ciudades del camino real entre las dos.</p>`;
+      cont.innerHTML = `<label>Ciudades intermedias</label>`;
       return;
     }
     const miToken = ++rutaDetectadaToken;

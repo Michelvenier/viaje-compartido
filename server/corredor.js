@@ -150,4 +150,59 @@ function resolverTramo(camino, origenPedido, destinoPedido) {
   return { origen, destino, esCompleto };
 }
 
-module.exports = { CIUDAD_BASE, CIUDADES_CORREDOR, DISTANCIAS_DEFAULT, validarCiudades, caminoDelViaje, resolverTramo };
+// Cuántos asientos quedan libres en cada TRAMO ELEMENTAL del camino (entre cada par de ciudades
+// consecutivas) — a pedido del usuario (20 ago 2026): "yo viajo de pehuajo a la plata con 4 lugares,
+// ocupo 3 y despues un pasajero ocupa de pehuajo a 9 de julio, entonces otro puede subir en 9 de
+// julio a la plata o de 9 de julio a donde quiera". Antes de este cambio, `viajes.asientos_disponibles`
+// era UN SOLO contador para TODO el viaje: una reserva parcial (ej. Pehuajó -> 9 de Julio) restaba
+// de ese único número, y ese número se usaba tal cual para decidir si había lugar en CUALQUIER otro
+// tramo — así, un pasajero que se baja en 9 de Julio "seguía ocupando" el asiento para el resto de
+// la ruta según el sistema, aunque en la realidad ya se había bajado y ese lugar estaba libre desde
+// ahí en adelante. Con esto, la ocupación se calcula tramo por tramo: una reserva solo resta
+// asientos en los tramos elementales que realmente atraviesa (entre su origen y su destino), nunca
+// en los de más adelante.
+//
+// `reservasQueOcupan` es un array de objetos con `tramo_origen_ciudad`, `tramo_destino_ciudad`
+// (cualquiera de los dos puede venir null — reservas de antes de "Reservas por tramo", ver
+// server/db.js — se toman como el viaje completo, igual que hace resolverTramo) y
+// `asientos_reservados`. Deben ser SOLO las reservas que efectivamente "ocupan" un lugar en el auto
+// en este momento (pendientes, aceptadas o completadas) — nunca rechazadas ni canceladas.
+//
+// Devuelve un array de longitud `camino.length - 1`: la posición `i` es cuántos asientos quedan
+// libres en el tramo elemental entre `camino[i]` y `camino[i+1]`.
+function asientosLibresPorTramoElemental(camino, asientosTotales, reservasQueOcupan) {
+  const libres = new Array(Math.max(0, camino.length - 1)).fill(asientosTotales);
+  for (const r of reservasQueOcupan || []) {
+    const tramo = resolverTramo(camino, r.tramo_origen_ciudad, r.tramo_destino_ciudad);
+    if (tramo.error) continue; // dato inconsistente (no debería pasar) — no rompe el cálculo del resto
+    const idxOrigen = camino.indexOf(tramo.origen);
+    const idxDestino = camino.indexOf(tramo.destino);
+    for (let i = idxOrigen; i < idxDestino; i++) {
+      libres[i] -= r.asientos_reservados;
+    }
+  }
+  return libres;
+}
+
+// El mínimo de asientos libres entre los tramos elementales `idxOrigen` (inclusive) y `idxDestino`
+// (exclusive) de `libresPorTramoElemental` — es el número que manda para saber si HAY lugar para
+// reservar ESE tramo puntual completo: si un solo tramo elemental en el medio ya está lleno, no
+// importa que los demás tengan lugar, no se puede reservar el tramo entero.
+function minAsientosLibresEnTramo(libresPorTramoElemental, idxOrigen, idxDestino) {
+  let min = Infinity;
+  for (let i = idxOrigen; i < idxDestino; i++) {
+    if (libresPorTramoElemental[i] < min) min = libresPorTramoElemental[i];
+  }
+  return min === Infinity ? 0 : min;
+}
+
+module.exports = {
+  CIUDAD_BASE,
+  CIUDADES_CORREDOR,
+  DISTANCIAS_DEFAULT,
+  validarCiudades,
+  caminoDelViaje,
+  resolverTramo,
+  asientosLibresPorTramoElemental,
+  minAsientosLibresEnTramo,
+};

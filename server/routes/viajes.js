@@ -222,7 +222,13 @@ async function publicar(req, res) {
 // real) que ese tramo respete el sentido real del viaje — así no aparece, por ejemplo, un viaje que
 // en realidad va de Pehuajó a 9 de Julio como resultado de buscar "9 de Julio -> Pehuajó".
 async function buscar(req, res, params, query) {
-  let sql = `SELECT * FROM viajes WHERE estado = 'activo' AND asientos_disponibles > 0`;
+  // A propósito ya NO filtra por "asientos_disponibles > 0" acá (20 ago 2026, ver el fix completo
+  // en corredor.js asientosLibresPorTramoElemental) — ese era un único contador para TODO el viaje,
+  // así que un viaje con una reserva parcial más atrás en la ruta (ej. alguien que reserva Pehuajó
+  // -> 9 de Julio) quedaba escondido de una búsqueda para un tramo más adelante (ej. 9 de Julio ->
+  // La Plata) aunque ahí SÍ hubiera lugar. Ahora la disponibilidad real se calcula tramo por tramo
+  // más abajo, después de traer los candidatos.
+  let sql = `SELECT * FROM viajes WHERE estado = 'activo'`;
   const args = [];
   if (query.origen) {
     sql += ` AND (origen_ciudad ILIKE ? OR ciudades_intermedias ILIKE ?)`;
@@ -241,12 +247,80 @@ async function buscar(req, res, params, query) {
   if (query.origen && query.destino) {
     rows = rows.filter((row) => !corredor.resolverTramo(corredor.caminoDelViaje(row), query.origen, query.destino).error);
   }
+
+  // Disponibilidad real de asientos POR TRAMO (20 ago 2026) — para cada viaje candidato, se calcula
+  // cuántos asientos quedan libres considerando SOLO las reservas que realmente se cruzan con el
+  // tramo pedido (o, si no se pidió un tramo puntual, se muestra si hay lugar en CUALQUIER parte de
+  // la ruta). También se sobreescribe `asientos_disponibles` en la respuesta con ese número real,
+  // para que la tarjeta de resultados ("💺 X de Y disponibles") no muestre un número que no
+  // corresponde al tramo buscado.
+  if (rows.length) {
+    const reservasPorViaje = await reservasQueOcupanPorViaje(rows.map((r) => r.id));
+    rows = rows.filter((row) => {
+      const camino = corredor.caminoDelViaje(row);
+      const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, row.asientos_totales, reservasPorViaje[row.id] || []);
+      if (query.origen && query.destino) {
+        const tramo = corredor.resolverTramo(camino, query.origen, query.destino);
+        const idxOrigen = camino.indexOf(tramo.origen);
+        const idxDestino = camino.indexOf(tramo.destino);
+        const libres = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigen, idxDestino);
+        row.asientos_disponibles = libres;
+        return libres > 0;
+      }
+      // Sin tramo puntual pedido: alcanza con que haya lugar en ALGÚN pedazo de la ruta — se
+      // muestra el mejor caso (el tramo con más lugares) como número de referencia en la tarjeta.
+      const mejorCaso = libresPorTramo.length ? Math.max(...libresPorTramo) : row.asientos_totales;
+      row.asientos_disponibles = mejorCaso;
+      return mejorCaso > 0;
+    });
+  }
+
   ok(res, await Promise.all(rows.map(conConductor)));
+}
+
+// Trae, para un conjunto de viajes, las reservas que actualmente "ocupan" un lugar en cada uno
+// (pendientes, aceptadas o completadas — nunca rechazadas/canceladas), agrupadas por viaje_id. Se
+// usa para calcular disponibilidad real por tramo (ver corredor.js asientosLibresPorTramoElemental)
+// tanto en buscar() como en detalle() más abajo.
+async function reservasQueOcupanPorViaje(idsViajes) {
+  if (!idsViajes.length) return {};
+  const filas = await db.all(
+    `SELECT viaje_id, tramo_origen_ciudad, tramo_destino_ciudad, asientos_reservados FROM reservas
+     WHERE viaje_id = ANY(?) AND estado IN ('pendiente','aceptada','completada')`,
+    [idsViajes]
+  );
+  const porViaje = {};
+  for (const f of filas) {
+    (porViaje[f.viaje_id] = porViaje[f.viaje_id] || []).push(f);
+  }
+  return porViaje;
 }
 
 async function detalle(req, res, params) {
   const row = await db.get("SELECT * FROM viajes WHERE id = ?", [params.id]);
   if (!row) return notFound(res, "Viaje no encontrado");
+
+  // Disponibilidad real de asientos POR TRAMO (20 ago 2026, ver corredor.js
+  // asientosLibresPorTramoElemental) — acá todavía no se sabe qué tramo puntual va a elegir el
+  // pasajero (lo elige después, con los selects "Subís en"/"Bajás en" de viewDetalle), así que se
+  // manda el detalle completo por tramo elemental (`tramos_disponibilidad`) para que el frontend
+  // pueda calcular el máximo real apenas el pasajero elige su tramo (ver también
+  // desgloseReservaVista más abajo, que hace este mismo cálculo server-side para el tramo ya
+  // elegido — la fuente de verdad real es siempre esa, esto es solo para no mostrar un formulario
+  // con un máximo de asientos equivocado antes de que el pasajero elija). `asientos_disponibles` se
+  // sobreescribe con el MEJOR caso (el tramo elemental con más lugares) — así la pantalla no dice
+  // "ya no tiene asientos disponibles" cuando en realidad hay lugar para ALGÚN tramo del viaje,
+  // aunque no para el viaje completo.
+  const camino = corredor.caminoDelViaje(row);
+  const reservasQueOcupan = (await reservasQueOcupanPorViaje([row.id]))[row.id] || [];
+  const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, row.asientos_totales, reservasQueOcupan);
+  row.tramos_disponibilidad = camino.slice(0, -1).map((c, i) => ({
+    origen: c,
+    destino: camino[i + 1],
+    libres: libresPorTramo[i],
+  }));
+  row.asientos_disponibles = libresPorTramo.length ? Math.max(...libresPorTramo) : row.asientos_totales;
+
   ok(res, await conConductor(row));
 }
 
@@ -352,6 +426,19 @@ async function desgloseReservaVista(req, res, params) {
   }
 
   const desglose = await pricing.calcularDesgloseReserva(precioPorAsiento, asientos);
+
+  // Disponibilidad real de asientos para ESTE tramo puntual (20 ago 2026, ver corredor.js
+  // asientosLibresPorTramoElemental) — mismo cálculo que hace reservas.crear() al confirmar de
+  // verdad, expuesto acá para que el frontend (viewDetalle) pueda mostrar/limitar el selector de
+  // "Asientos a reservar" al máximo real de ESE tramo (no del viaje completo), y avisar ANTES de
+  // enviar la solicitud si ya no queda lugar — en vez de que el pasajero se entere recién al
+  // mandar el formulario.
+  const reservasQueOcupan = (await reservasQueOcupanPorViaje([viaje.id]))[viaje.id] || [];
+  const idxOrigenTramo = camino.indexOf(tramo.origen);
+  const idxDestinoTramo = camino.indexOf(tramo.destino);
+  const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, viaje.asientos_totales, reservasQueOcupan);
+  const asientosDisponiblesTramo = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigenTramo, idxDestinoTramo);
+
   ok(res, {
     ...desglose,
     precioPorAsiento,
@@ -359,6 +446,7 @@ async function desgloseReservaVista(req, res, params) {
     tramoCompleto: tramo.esCompleto,
     origenTramo: tramo.origen,
     destinoTramo: tramo.destino,
+    asientosDisponiblesTramo,
   });
 }
 
