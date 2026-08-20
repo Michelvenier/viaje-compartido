@@ -1,8 +1,7 @@
-// api/corredor.js — Ciudades habilitadas y distancias/peajes de referencia del corredor,
+// api/corredor.js — Distancias/peajes de referencia (respaldo de emergencia) y helpers de camino
 // para calcular automáticamente km, peajes y precio SIN que el conductor pueda tocarlos.
 //
-// Desde el 13 ago 2026 los viajes ya NO tienen que tener a La Plata como origen o destino: se
-// puede viajar entre dos ciudades intermedias del corredor (ej. Tandil ↔ Bolívar).
+// Desde el 13 ago 2026 los viajes ya NO tienen que tener a La Plata como origen o destino.
 //
 // Desde el 19 ago 2026 (a pedido explícito del usuario: "Eso es para los km de las ciudades,
 // TODAS!!"), la tabla de abajo YA NO es la fuente principal de distancia para los pares que
@@ -10,6 +9,12 @@
 // La Plata ↔ X) se resuelve primero con la Distance Matrix API de Google Maps (cacheada para no
 // volver a pagar la misma consulta) — ver server/pricing.js (calcularPorCiudades) para el detalle
 // completo de la cascada. La tabla de abajo solo se usa si Google Maps no responde.
+//
+// Desde el 20 ago 2026 (a pedido explícito del usuario: "Necesito conectar todo a google maps y
+// que sea todo a partir de eso"), CIUDADES_CORREDOR YA NO restringe qué ciudades puede elegir el
+// conductor — eso ahora lo resuelve el buscador real de Google Maps en el navegador (Places
+// Autocomplete, ver js/maps-loader.js). CIUDADES_CORREDOR solo se sigue usando para saber qué
+// ciudades tienen una fila en la tabla de respaldo de abajo.
 //
 // IMPORTANTE: los valores de abajo son ESTIMACIONES de distancia y peaje por ruta, no vienen de
 // un mapa real — hay que revisarlos y corregirlos desde el panel de administración (Panel de
@@ -68,21 +73,22 @@ const DISTANCIAS_DEFAULT = {
   "General Alvear": { km: 258, peaje: 2500 },
 };
 
-// Valida que origen y destino sean dos ciudades distintas, ambas dentro del corredor habilitado.
-// Ya NO exige que una de las dos sea La Plata (esa restricción se sacó a pedido del usuario, para
-// permitir viajes entre ciudades intermedias) — ver server/pricing.js para cómo se resuelve el km
-// según el par elegido.
+// Valida que origen y destino sean dos ciudades distintas y no vacías.
+//
+// Hasta el 20 ago 2026 esto además exigía que las dos ciudades estuvieran en la lista fija
+// CIUDADES_CORREDOR de acá arriba. Se sacó esa restricción a pedido del usuario ("Necesito conectar
+// todo a google maps y que sea todo a partir de eso") — ahora el conductor elige la ciudad con el
+// buscador real de Google Maps (Places Autocomplete, ver js/maps-loader.js y
+// js/components.js wireAutocompleteCiudad), así que cualquier ciudad real de Argentina que Google
+// reconozca es válida, no solo las 18 de la lista curada. CIUDADES_CORREDOR y DISTANCIAS_DEFAULT
+// se mantienen igual, pero ahora son solo el respaldo de emergencia para pares que tocan La Plata
+// cuando Google Maps no puede resolver la distancia (ver server/pricing.js calcularPorCiudades) —
+// ya no restringen qué ciudades se pueden elegir.
 function validarCiudades(origenCiudad, destinoCiudad) {
   const origen = (origenCiudad || "").trim();
   const destino = (destinoCiudad || "").trim();
   if (!origen || !destino) return { error: "Elegí ciudad de origen y de destino." };
   if (origen === destino) return { error: "El origen y el destino no pueden ser la misma ciudad." };
-  if (!CIUDADES_CORREDOR.includes(origen)) {
-    return { error: `"${origen}" todavía no es una ciudad habilitada del corredor.` };
-  }
-  if (!CIUDADES_CORREDOR.includes(destino)) {
-    return { error: `"${destino}" todavía no es una ciudad habilitada del corredor.` };
-  }
   return {};
 }
 

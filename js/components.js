@@ -1,5 +1,97 @@
 // components.js — piezas de UI reutilizables (acordeones, chips, tarjetas de viaje, estrellas).
 
+// ---------------------------------------------------------------------------
+// AUTOCOMPLETE DE GOOGLE MAPS — ata un buscador real de Google (Places Autocomplete) a un <input>
+// de texto, a pedido del usuario (20 ago 2026: "Ciudades intermedias de manera automática, no que
+// te deje escribir cualquier cosa. Origen y destino también mejorar"). Requiere que
+// `GoogleMapsLoader.listo()` (js/maps-loader.js) ya haya resuelto antes de llamar a estas dos
+// funciones — si Google Maps no está disponible, el caller tiene que quedarse con el fallback de
+// siempre (selects/inputs de texto libre) en vez de llamar a esto.
+// ---------------------------------------------------------------------------
+
+// Ata un Autocomplete restringido a CIUDADES de Argentina. Llama a onSeleccion({nombre, lat, lng,
+// placeId}) solo cuando el usuario elige una sugerencia real de la lista desplegada por Google —
+// `nombre` es el nombre corto de la localidad (ej. "9 de Julio"), sacado de los
+// address_components de tipo "locality" (con "administrative_area_level_2" como respaldo, para el
+// puñado de localidades que Google no marca como "locality"). Si el usuario escribe algo y aprieta
+// Enter sin elegir de la lista, `place.geometry` viene vacío y no se llama a onSeleccion — el
+// caller decide qué hacer con eso (ver js/views.js viewPublicar, campoCiudadValido).
+function wireAutocompleteCiudad(input, onSeleccion) {
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ["(cities)"],
+    componentRestrictions: { country: "ar" },
+    fields: ["address_components", "geometry", "name", "place_id"],
+  });
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (!place || !place.geometry) return;
+    const comps = place.address_components || [];
+    const locality = comps.find((c) => c.types.includes("locality"));
+    const partido = comps.find((c) => c.types.includes("administrative_area_level_2"));
+    const nombre = (locality || partido || { long_name: place.name }).long_name;
+    onSeleccion({
+      nombre,
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+      placeId: place.place_id,
+    });
+  });
+  return autocomplete;
+}
+
+// Reemplaza el <select> de ciudad que hay dentro de `cont` (un contenedor `.field` con el select
+// adentro, ver js/views.js data-ciudad-field) por un <input> de texto con buscador real de Google
+// Maps atado (wireAutocompleteCiudad). Preserva el valor que tenía el select y cualquier <label>
+// que hubiera adentro. Devuelve el <input> nuevo. Se usa tanto en la publicación de un viaje (con
+// validación estricta de que se haya elegido una sugerencia real) como en los buscadores de home y
+// resultados (sin esa validación, porque ahí el backend ya acepta texto parcial con ILIKE).
+function reemplazarSelectPorAutocompleteCiudad(cont, name, onSeleccion, placeholder) {
+  const viejo = cont.querySelector("select, input");
+  const valorInicial = viejo ? viejo.value : "";
+  const label = cont.querySelector("label");
+  cont.innerHTML = "";
+  if (label) cont.appendChild(label);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.name = name;
+  input.autocomplete = "off";
+  input.placeholder = placeholder || "Escribí y elegí una ciudad de la lista…";
+  input.value = valorInicial;
+  if (valorInicial) input.dataset.valida = "1";
+  cont.appendChild(input);
+  wireAutocompleteCiudad(input, (lugar) => {
+    input.value = lugar.nombre;
+    input.dataset.valida = "1";
+    if (onSeleccion) onSeleccion(lugar, input);
+  });
+  input.addEventListener("input", () => {
+    input.dataset.valida = "";
+  });
+  return input;
+}
+
+// Ata un Autocomplete SIN restricción de tipo (direcciones, comercios, lugares puntuales como una
+// estación de servicio o una terminal) — para elegir un punto de partida exacto. onSeleccion
+// recibe {nombre, direccion, lat, lng, placeId}.
+function wireAutocompletePlace(input, onSeleccion) {
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    componentRestrictions: { country: "ar" },
+    fields: ["formatted_address", "geometry", "name", "place_id"],
+  });
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (!place || !place.geometry) return;
+    onSeleccion({
+      nombre: place.name || place.formatted_address,
+      direccion: place.formatted_address || place.name,
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+      placeId: place.place_id,
+    });
+  });
+  return autocomplete;
+}
+
 function renderAccordion(items, idPrefix) {
   return `<div class="accordion" data-accordion="${idPrefix}">
     ${items

@@ -106,9 +106,10 @@ router.post("/api/upload", blob.subir);
 router.get("/api/admin/documento", adminOnly(blob.verDocumento));
 
 // Búsqueda de puntos de encuentro (estaciones de servicio, terminales, etc.) para publicar un
-// viaje — ver server/routes/lugares.js para por qué pasa siempre por el servidor y nunca expone la
-// key de Google en el navegador.
+// viaje, y entrega de la key de Google Maps para uso en el navegador — ver server/routes/lugares.js
+// para el detalle completo de las dos keys distintas (server-side vs. browser) y por qué.
 router.get("/api/lugares/buscar", lugares.buscar);
+router.get("/api/lugares/maps-key", lugares.mapsKey);
 
 let schemaReady = null;
 function ensureSchema() {

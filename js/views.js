@@ -28,11 +28,11 @@ function viewHome(app) {
       <h1>Compartí el auto. <br>Compartí los gastos.</h1>
       <p class="sub">Conectamos conductores y pasajeros que viajan hacia el mismo destino.</p>
       <form class="search-box" id="home-search-form">
-        <div class="field" style="margin-bottom:0">
+        <div class="field" style="margin-bottom:0" data-ciudad-field="origen">
           <label>Salgo de</label>
           ${selectCiudades("origen", "La Plata", "", true)}
         </div>
-        <div class="field" style="margin-bottom:0">
+        <div class="field" style="margin-bottom:0" data-ciudad-field="destino">
           <label>Voy a</label>
           ${selectCiudades("destino", "", "Elegí destino", true)}
         </div>
@@ -97,6 +97,26 @@ function viewHome(app) {
     if (fd.get("fecha")) params.set("fecha", fd.get("fecha"));
     location.hash = `#/buscar?${params.toString()}`;
   });
+  mejorarBuscadorCiudades(app);
+}
+
+// Reemplaza los selects "Salgo de"/"Voy a" de un buscador (home o resultados) por buscadores
+// reales de Google Maps, si está disponible — a diferencia de viewPublicar, acá NO se exige haber
+// elegido una sugerencia real: el backend ya acepta texto parcial (ILIKE) para buscar viajes, así
+// que el autocomplete es solo una ayuda, no una validación. Si Google Maps no carga, los selects
+// de siempre se quedan como están (fallback silencioso, sin mensaje de error — no hace falta para
+// un simple buscador).
+async function mejorarBuscadorCiudades(app) {
+  try {
+    await GoogleMapsLoader.listo();
+  } catch {
+    return;
+  }
+  if (!app.isConnected) return;
+  ["origen", "destino"].forEach((name) => {
+    const cont = app.querySelector(`[data-ciudad-field="${name}"]`);
+    if (cont) reemplazarSelectPorAutocompleteCiudad(cont, name, null, name === "origen" ? "Cualquier origen" : "Cualquier destino");
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -107,11 +127,11 @@ async function viewBuscar(app, params, query) {
     <div class="container">
       <div class="card" style="margin-bottom:20px">
         <form class="grid-3" id="buscar-form" style="align-items:end">
-          <div class="field" style="margin-bottom:0">
+          <div class="field" style="margin-bottom:0" data-ciudad-field="origen">
             <label>Salgo de</label>
             ${selectCiudades("origen", query.origen || "", "Cualquier origen")}
           </div>
-          <div class="field" style="margin-bottom:0">
+          <div class="field" style="margin-bottom:0" data-ciudad-field="destino">
             <label>Voy a</label>
             ${selectCiudades("destino", query.destino || "", "Cualquier destino")}
           </div>
@@ -134,6 +154,7 @@ async function viewBuscar(app, params, query) {
     ["origen", "destino", "fecha"].forEach((k) => fd.get(k) && p.set(k, fd.get(k)));
     location.hash = `#/buscar?${p.toString()}`;
   });
+  mejorarBuscadorCiudades(app);
 
   const qs = new URLSearchParams();
   if (query.origen) qs.set("origen", query.origen);
@@ -451,23 +472,24 @@ function viewPublicar(app) {
         <h2>Publicá tu viaje</h2>
         <p class="muted">La distancia, los peajes y el precio se calculan automáticamente según las ciudades — nadie los puede editar,
         ni siquiera vos, para que el precio nunca se aparte del costo real del trayecto.</p>
+        <div id="maps-status" class="muted" style="font-size:0.85rem;margin-bottom:10px">🌎 Cargando el buscador de Google Maps…</div>
         <div id="publicar-error"></div>
         <form id="form-publicar">
-          <div class="field">
+          <div class="field" data-punto-partida-field>
             <label>Punto de partida exacto</label>
             <input type="text" name="origen_direccion" placeholder="Ej: Terminal de Ómnibus, La Plata" required>
           </div>
           <div class="field-row">
-            <div class="field">
+            <div class="field" data-ciudad-field="origen_ciudad">
               <label>Salgo de</label>
               ${selectCiudades("origen_ciudad", "La Plata", "", true)}
             </div>
-            <div class="field">
+            <div class="field" data-ciudad-field="destino_ciudad">
               <label>Voy a</label>
               ${selectCiudades("destino_ciudad", "", "Elegí destino", true)}
             </div>
           </div>
-          <div class="field">
+          <div class="field" data-intermedias-field>
             <label>Ciudades intermedias</label>
             <input type="text" name="ciudades_intermedias" placeholder="Separadas por coma. Ej: Chascomús, Rauch">
             <small class="hint">Así tu viaje aparece en búsquedas de gente que hace solo un tramo del camino.</small>
@@ -529,10 +551,22 @@ function viewPublicar(app) {
   const form = app.querySelector("#form-publicar");
   const btnPublicar = app.querySelector("#btn-publicar");
 
+  // Un campo de ciudad es válido si: (a) es el <select> de siempre (fallback, cualquier opción ya
+  // es una ciudad real) o (b) es un <input> con buscador de Google Maps Y el valor vino de una
+  // sugerencia real elegida (dataset.valida === "1"), no de texto tipeado a mano — a pedido del
+  // usuario (20 ago 2026: "no que te deje escribir cualquier cosa").
+  function campoCiudadValido(el) {
+    if (!el || !el.value) return false;
+    if (el.tagName === "SELECT") return true;
+    return el.dataset.valida === "1";
+  }
+
   function ciudadesElegidas() {
-    const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
-    const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
-    if (!origen_ciudad || !destino_ciudad) return null;
+    const elOrigen = form.querySelector('[name="origen_ciudad"]');
+    const elDestino = form.querySelector('[name="destino_ciudad"]');
+    if (!campoCiudadValido(elOrigen) || !campoCiudadValido(elDestino)) return null;
+    const origen_ciudad = elOrigen.value;
+    const destino_ciudad = elDestino.value;
     if (origen_ciudad === destino_ciudad) return null;
     return { origen_ciudad, destino_ciudad };
   }
@@ -542,16 +576,19 @@ function viewPublicar(app) {
   // intermedias). Keyeado por nombre exacto de ciudad.
   const puntosEncuentro = {};
 
-  function ciudadesIntermediasElegidas() {
-    return (form.querySelector('[name="ciudades_intermedias"]').value || "")
+  // Ciudades intermedias elegidas — array de nombres, en el orden en que se agregaron. Es la
+  // fuente de verdad en modo Google Maps (chips, ver mejorarConGoogleMaps más abajo); en modo
+  // fallback (sin Maps) se ignora y se parsea el texto del input viejo en su lugar.
+  const intermediasCiudades = [];
+  let ciudadesIntermediasElegidas = () =>
+    (form.querySelector('[name="ciudades_intermedias"]').value || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-  }
 
   // Recalcula el camino actual (origen, intermedias, destino — sin vacíos ni repetidos) y
   // re-renderiza una tarjeta de búsqueda por cada ciudad, preservando lo ya elegido en
-  // `puntosEncuentro`. Se llama cada vez que cambia origen, destino o el texto de intermedias.
+  // `puntosEncuentro`. Se llama cada vez que cambia origen, destino o la lista de intermedias.
   function renderPuntosEncuentroContainer() {
     const cont = app.querySelector("#puntos-encuentro-container");
     if (!cont) return;
@@ -573,6 +610,98 @@ function viewPublicar(app) {
   form.querySelector('[name="ciudades_intermedias"]').addEventListener("change", renderPuntosEncuentroContainer);
   form.querySelector('[name="ciudades_intermedias"]').addEventListener("blur", renderPuntosEncuentroContainer);
 
+  // ---------------------------------------------------------------------------
+  // GOOGLE MAPS — mejora progresiva (20 ago 2026, a pedido del usuario: "Necesito conectar todo a
+  // google maps y que sea todo a partir de eso... Ciudades intermedias de manera automática, no
+  // que te deje escribir cualquier cosa. Origen y destino también mejorar"). Si Google Maps no
+  // carga (key no configurada todavía, sin conexión, etc.) la vista se queda tal cual estaba antes
+  // — selects de la lista fija + texto libre para intermedias — sin romperse.
+  // ---------------------------------------------------------------------------
+  const mapsStatus = app.querySelector("#maps-status");
+
+  // Reemplaza el <select> de una ciudad por un <input> con Autocomplete real de Google Maps
+  // (restringido a ciudades de Argentina) — usa el helper compartido de js/components.js.
+  function mejorarCampoCiudad(name) {
+    const cont = form.querySelector(`[data-ciudad-field="${name}"]`);
+    if (!cont) return;
+    reemplazarSelectPorAutocompleteCiudad(cont, name, () => {
+      renderPuntosEncuentroContainer();
+      actualizarPreview();
+    });
+  }
+
+  // Reemplaza el input de texto libre de "Ciudades intermedias" por chips + un buscador que solo
+  // acepta agregar una ciudad si viene de una sugerencia real de Google Maps.
+  function mejorarCampoIntermedias() {
+    const cont = form.querySelector("[data-intermedias-field]");
+    if (!cont) return;
+    cont.innerHTML = `
+      <label>Ciudades intermedias</label>
+      <small class="hint">Elegí, en orden, las ciudades por las que pasás en el camino — buscá y hacé clic en una sugerencia para agregarla. Así tu viaje aparece en búsquedas de gente que hace solo un tramo del camino.</small>
+      <div id="intermedias-chips" style="margin:8px 0"></div>
+      <input type="text" id="intermedias-buscar" autocomplete="off" placeholder="Buscar una ciudad para agregar…">`;
+
+    function renderChipsIntermedias() {
+      const chipsCont = cont.querySelector("#intermedias-chips");
+      chipsCont.innerHTML = intermediasCiudades.length
+        ? intermediasCiudades
+            .map(
+              (c, i) =>
+                `<span class="chip-toggle active" data-idx="${i}" style="cursor:pointer;margin:2px 4px 2px 0;display:inline-block">${escapeHtml(c)} ✕</span>`
+            )
+            .join("")
+        : `<span class="muted" style="font-size:0.85rem">Ninguna todavía (opcional).</span>`;
+      chipsCont.querySelectorAll("[data-idx]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          intermediasCiudades.splice(Number(chip.dataset.idx), 1);
+          renderChipsIntermedias();
+          renderPuntosEncuentroContainer();
+        });
+      });
+    }
+    renderChipsIntermedias();
+
+    const input = cont.querySelector("#intermedias-buscar");
+    wireAutocompleteCiudad(input, (lugar) => {
+      input.value = "";
+      if (!intermediasCiudades.includes(lugar.nombre)) {
+        intermediasCiudades.push(lugar.nombre);
+        renderChipsIntermedias();
+        renderPuntosEncuentroContainer();
+      }
+    });
+
+    ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
+  }
+
+  // Reemplaza "Punto de partida exacto" por un buscador de lugares reales de Google Maps
+  // (direcciones, estaciones de servicio, terminales, etc.) en vez de texto libre.
+  function mejorarPuntoPartida() {
+    const cont = form.querySelector("[data-punto-partida-field]");
+    if (!cont) return;
+    const input = cont.querySelector('[name="origen_direccion"]');
+    input.placeholder = "Buscá el lugar exacto de partida (ej. una terminal, estación de servicio, plaza)…";
+    wireAutocompletePlace(input, (lugar) => {
+      input.value = lugar.direccion;
+    });
+  }
+
+  async function mejorarConGoogleMaps() {
+    try {
+      await GoogleMapsLoader.listo();
+    } catch {
+      mapsStatus.innerHTML = `⚠️ El buscador de Google Maps no está disponible en este momento — completá los campos de siempre a mano.`;
+      return;
+    }
+    if (!form.isConnected) return; // el usuario pudo haber navegado a otra vista mientras cargaba
+    mejorarCampoCiudad("origen_ciudad");
+    mejorarCampoCiudad("destino_ciudad");
+    mejorarCampoIntermedias();
+    mejorarPuntoPartida();
+    mapsStatus.remove();
+  }
+  mejorarConGoogleMaps();
+
   async function actualizarPreview() {
     const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
     const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
@@ -582,7 +711,10 @@ function viewPublicar(app) {
       app.querySelector("#precio-preview").innerHTML = `<span style="color:var(--danger)">El origen y el destino no pueden ser la misma ciudad.</span>`;
       return;
     }
-    if (!ciudades) return;
+    if (!ciudades) {
+      app.querySelector("#precio-preview").innerHTML = `<span class="muted">Elegí origen y destino de la lista de sugerencias para ver el precio calculado.</span>`;
+      return;
+    }
     const fd = new FormData(form);
     try {
       const calc = await Api.post("/api/pricing/calcular", {
@@ -610,12 +742,12 @@ function viewPublicar(app) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const ciudades = ciudadesElegidas();
-    if (!ciudades) return;
+    if (!ciudades) {
+      toast("Elegí el origen y el destino de la lista de sugerencias (no alcanza con escribirlo).", "error");
+      return;
+    }
     const fd = new FormData(form);
-    const intermedias = (fd.get("ciudades_intermedias") || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const intermedias = ciudadesIntermediasElegidas();
     // Solo se mandan los puntos de encuentro de ciudades que siguen siendo parte del camino —
     // así si el conductor eligió un punto para una ciudad intermedia y después la borró del campo
     // de texto, ese punto viejo no queda colgado en el payload.

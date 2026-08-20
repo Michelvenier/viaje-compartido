@@ -1,14 +1,17 @@
 // server/routes/lugares.js — Búsqueda de lugares reales (estaciones de servicio, terminales,
-// plazas, etc.) para elegir el punto de encuentro exacto de un viaje (a pedido del usuario, 19 ago
-// 2026: "que seleccione el punto de encuentro en google maps... Todo esto igual a blablacar").
+// plazas, etc.) para elegir el punto de encuentro exacto de un viaje, y entrega de la clave de
+// Google Maps para uso en el navegador (ver mapsKey más abajo).
 //
-// POR QUÉ ESTE ENDPOINT PROPIO Y NO LLAMAR A GOOGLE DIRECTO DESDE EL NAVEGADOR: el usuario pidió
-// explícitamente NO exponer ninguna clave de Google en el código del navegador (a diferencia del
-// mapa interactivo tipo "arrastrar el pin", que sí necesita eso). Con este endpoint, el navegador
-// le pregunta a NUESTRO servidor ("¿qué lugares hay para 'YPF ruta 5 9 de Julio'?"), y es el
-// servidor el que consulta a Google con la key guardada en Vercel (GOOGLE_MAPS_API_KEY, la misma
-// que ya se usa para calcular distancias) — la key nunca sale del servidor, mismo patrón que ya
-// usa el resto de la integración con Google Maps (ver server/maps.js).
+// Hasta el 20 ago 2026, esta búsqueda pasaba SIEMPRE por este endpoint propio para que ninguna key
+// de Google llegara al navegador. Ese día el usuario pidió explícitamente lo contrario ("Necesito
+// conectar todo a google maps y que sea todo a partir de eso... si se ve la clave la
+// restringiremos de alguna manera, porque tengo mil problemas sin google maps"): ahora el
+// navegador SÍ usa la API de JavaScript de Google Maps directamente (Autocomplete real, con mapa
+// interactivo) para origen, destino, ciudades intermedias y el punto de partida — ver
+// js/maps-loader.js y GOOGLE_MAPS_BROWSER_KEY más abajo. Esta búsqueda por texto server-side se
+// deja como está (no rompe nada) para el buscador de puntos de encuentro por ciudad ya construido
+// (ver js/components.js puntoEncuentroEditarHtml) — sigue funcionando igual, sin necesitar la key
+// del navegador.
 "use strict";
 
 const maps = require("../maps");
@@ -25,4 +28,23 @@ async function buscar(req, res, params, query) {
   ok(res, { resultados });
 }
 
-module.exports = { buscar };
+// GET /api/lugares/maps-key — entrega la clave de Google Maps para uso EN EL NAVEGADOR (carga de
+// la API de JavaScript de Maps con Autocomplete real, mapa interactivo, etc.).
+//
+// A propósito es una clave DISTINTA de GOOGLE_MAPS_API_KEY (la que usa este servidor para Distance
+// Matrix y Places Text Search) — nunca hay que reusar la misma key para las dos cosas: la del
+// navegador tiene que estar restringida en Google Cloud Console por "HTTP referrers" (el dominio
+// de Vercel del proyecto, ej. "https://viaje-compartido-5nhl.vercel.app/*"), y una key restringida
+// así NO funciona desde el servidor (las llamadas server-to-server no mandan un header Referer de
+// navegador que matchee esa restricción). Se guarda en Vercel como GOOGLE_MAPS_BROWSER_KEY — ver
+// claude/ruta-compartida-status.md para el paso a paso de cómo crearla y restringirla.
+//
+// Sin sesión ni adminOnly a propósito (cualquiera que abra la app tiene que poder cargar el mapa) —
+// mismo criterio que GET /api/config/cobro (server/routes/admin.js). Si la variable no está
+// configurada todavía, devuelve apiKey: null — el frontend cae a los selects/inputs de texto de
+// siempre en vez de romperse (ver js/maps-loader.js).
+async function mapsKey(req, res) {
+  ok(res, { apiKey: process.env.GOOGLE_MAPS_BROWSER_KEY || null });
+}
+
+module.exports = { buscar, mapsKey };
