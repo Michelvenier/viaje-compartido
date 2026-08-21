@@ -52,12 +52,17 @@
 
   <div id="toast-container"></div>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/maps-loader.js"></script>
-  <script src="/js/state.js"></script>
-  <script src="/js/legal.js"></script>
-  <script src="/js/components.js"></script>
-  <script src="/js/views.js"></script>
-  <script src="/js/app.js"></script>
+  <!-- Los "?v=" de acá abajo son a propósito (21 ago 2026): sin un query string distinto en cada
+  cambio, el navegador del conductor puede quedarse sirviendo una copia vieja de estos .js desde su
+  caché aunque el deploy en Vercel ya tenga el código nuevo — pasó exactamente eso el 21 ago 2026
+  (el usuario pusheó un fix y "no se actualizó nada" en su navegador). Subir este número cada vez
+  que se edite alguno de estos archivos fuerza a que el navegador pida la versión nueva sí o sí. -->
+  <script src="/js/api.js?v=3"></script>
+  <script src="/js/maps-loader.js?v=3"></script>
+  <script src="/js/state.js?v=3"></script>
+  <script src="/js/legal.js?v=3"></script>
+  <script src="/js/components.js?v=3"></script>
+  <script src="/js/views.js?v=3"></script>
+  <script src="/js/app.js?v=3"></script>
 </body>
 </html>
