@@ -860,12 +860,32 @@ function viewPublicar(app) {
 
     // Siempre al menos una "ruta" para no tener que ramificar el resto de la función — si Google no
     // devolvió ninguna (no debería pasar con disponible=true, pero por las dudas) se trata como una
-    // ruta directa sin ciudades detectadas, igual que antes del selector.
-    const rutas = resp.rutas && resp.rutas.length ? resp.rutas : [{ resumen: "", distanciaKm: null, ciudades: [] }];
+    // ruta directa sin ciudades detectadas, igual que antes del selector. `(r.ciudades || [])`
+    // (21 ago 2026) es defensivo a propósito: si el navegador queda sirviendo un index.html/JS
+    // viejo en caché mientras el servidor ya tiene el formato nuevo (o viceversa, un despliegue a
+    // medio camino), esto evita un TypeError acá adentro que dejaría el checklist colgado para
+    // siempre en "Buscando las ciudades de tu ruta…" sin ningún mensaje de error visible — ver el
+    // fix de fondo (Cache-Control de index.html) en vercel.json, y el try/catch de más abajo como
+    // última red de contención por si pasa cualquier otra cosa inesperada.
+    const rutas = resp.rutas && resp.rutas.length
+      ? resp.rutas.map((r) => ({ ...r, ciudades: r.ciudades || [] }))
+      : [{ resumen: "", distanciaKm: null, ciudades: [] }];
     let idxElegida = 0;
 
     const pintarChecklist = () => {
       if (miToken !== rutaDetectadaToken || !cont.isConnected) return; // el conductor pudo haber cambiado de ciudad mientras tanto
+      try {
+        pintarChecklistInterno();
+      } catch (err) {
+        // Red de contención (21 ago 2026): si por lo que sea esto explota (deploy a medio camino,
+        // bug no previsto, etc.), mejor caer al buscador manual de siempre que dejar el checklist
+        // colgado para siempre en "Buscando…" sin explicación — nunca bloquea la publicación.
+        console.error("Error pintando el checklist de ciudades intermedias:", err);
+        mejorarCampoIntermedias();
+      }
+    };
+
+    const pintarChecklistInterno = () => {
       const ruta = rutas[idxElegida];
 
       intermediasCiudades.length = 0;
