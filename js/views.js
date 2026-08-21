@@ -635,8 +635,22 @@ function viewPublicar(app) {
   // fuente de verdad en modo Google Maps (chips, ver mejorarConGoogleMaps más abajo); en modo
   // fallback (sin Maps) se ignora y se parsea el texto del input viejo en su lugar.
   const intermediasCiudades = [];
+  // Bug real (21 ago 2026, encontrado con la consola del navegador tras un reporte del usuario: "no
+  // aparece ningún cambio" aunque eligiera bien las dos ciudades de la lista): esta función original
+  // asumía que el <input name="ciudades_intermedias"> del HTML de arriba siempre existe, pero
+  // intentarDetectarRuta() (más abajo) lo borra del DOM apenas hay coordenadas de UNA sola ciudad
+  // (para no dejar pegado un texto explicativo viejo mientras falta la otra) — con `.value` a secas,
+  // eso tiraba "Cannot read properties of null (reading 'value')" en cuanto se elegía la SEGUNDA
+  // ciudad, porque para ese momento el campo ya no estaba. El error cortaba en seco toda la cadena
+  // de renderPuntosEncuentroContainer() → intentarDetectarRuta() → actualizarPreview() que dispara
+  // cada selección — por eso nunca aparecía el segundo mapa, ni el precio, ni las intermedias
+  // detectadas, aunque el usuario eligiera bien las dos ciudades de la lista de Google. El `?.` de
+  // acá evita el crash (si el campo no existe todavía, no hay nada tipeado ahí, así que "sin
+  // intermedias" es la respuesta correcta) — es solo un respaldo para este modo sin Google Maps de
+  // todos modos, porque en cuanto el buscador de Maps carga esta función se reemplaza por la de
+  // abajo (línea ~767) o por la de la detección automática (línea ~826).
   let ciudadesIntermediasElegidas = () =>
-    (form.querySelector('[name="ciudades_intermedias"]').value || "")
+    (form.querySelector('[name="ciudades_intermedias"]')?.value || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
