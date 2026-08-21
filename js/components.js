@@ -45,7 +45,18 @@ function wireAutocompleteCiudad(input, onSeleccion) {
 // que hubiera adentro. Devuelve el <input> nuevo. Se usa tanto en la publicación de un viaje (con
 // validación estricta de que se haya elegido una sugerencia real) como en los buscadores de home y
 // resultados (sin esa validación, porque ahí el backend ya acepta texto parcial con ILIKE).
-function reemplazarSelectPorAutocompleteCiudad(cont, name, onSeleccion, placeholder) {
+//
+// Fix (21 ago 2026, a pedido del usuario: "puedo poner las ciudades pero no me las toma... me sigue
+// apareciendo que elija origen y destino y ya los elegi"): antes, si el usuario tipeaba una ciudad
+// y por el motivo que fuera (no clickeó ninguna sugerencia real de la lista desplegada, apretó Enter
+// sin elegir, etc.) el campo quedaba con texto pero SIN seleccionar de verdad, no había NINGUNA
+// señal visible de que la ciudad no se había "tomado" — el resto de la pantalla (precio, ciudades
+// intermedias, puntos de encuentro) se quedaba mostrando el estado viejo/inicial para siempre, sin
+// ninguna pista de qué faltaba. Ahora, al perder el foco (blur) con texto tipeado que no viene de
+// una selección real, se muestra un aviso claro abajo del campo, y se llama a `onInvalido` (si el
+// caller lo pasa) para que pueda refrescar el resto de la pantalla con el estado real actual (en vez
+// de dejar tarjetas o mensajes de una selección anterior colgados en pantalla).
+function reemplazarSelectPorAutocompleteCiudad(cont, name, onSeleccion, placeholder, onInvalido) {
   const viejo = cont.querySelector("select, input");
   const valorInicial = viejo ? viejo.value : "";
   const label = cont.querySelector("label");
@@ -59,13 +70,28 @@ function reemplazarSelectPorAutocompleteCiudad(cont, name, onSeleccion, placehol
   input.value = valorInicial;
   if (valorInicial) input.dataset.valida = "1";
   cont.appendChild(input);
+  const aviso = document.createElement("small");
+  aviso.className = "aviso-ciudad-no-valida";
+  aviso.style.cssText = "display:none;color:var(--danger);margin-top:4px";
+  aviso.textContent = "⚠️ Elegí esta ciudad de la lista de sugerencias que aparece al escribir — no alcanza con tipearla y apretar Enter.";
+  cont.appendChild(aviso);
   wireAutocompleteCiudad(input, (lugar) => {
     input.value = lugar.nombre;
     input.dataset.valida = "1";
+    aviso.style.display = "none";
     if (onSeleccion) onSeleccion(lugar, input);
   });
   input.addEventListener("input", () => {
     input.dataset.valida = "";
+    aviso.style.display = "none";
+  });
+  input.addEventListener("blur", () => {
+    if (input.value && input.dataset.valida !== "1") {
+      aviso.style.display = "block";
+      if (onInvalido) onInvalido(input);
+    } else {
+      aviso.style.display = "none";
+    }
   });
   return input;
 }

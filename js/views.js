@@ -697,13 +697,30 @@ function viewPublicar(app) {
   function mejorarCampoCiudad(name) {
     const cont = form.querySelector(`[data-ciudad-field="${name}"]`);
     if (!cont) return;
-    reemplazarSelectPorAutocompleteCiudad(cont, name, (lugar) => {
-      ciudadesCoords[name] = { lat: lugar.lat, lng: lugar.lng };
-      coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
-      renderPuntosEncuentroContainer();
-      intentarDetectarRuta();
-      actualizarPreview();
-    });
+    reemplazarSelectPorAutocompleteCiudad(
+      cont,
+      name,
+      (lugar) => {
+        ciudadesCoords[name] = { lat: lugar.lat, lng: lugar.lng };
+        coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
+        renderPuntosEncuentroContainer();
+        intentarDetectarRuta();
+        actualizarPreview();
+      },
+      undefined,
+      // onInvalido (21 ago 2026, ver el fix en js/components.js reemplazarSelectPorAutocompleteCiudad):
+      // el conductor tipeó algo en este campo pero nunca eligió una sugerencia real de la lista, así
+      // que esta ciudad NO cuenta como elegida — se borran las coordenadas viejas que pudiera tener
+      // guardadas (por si estaba corrigiendo una selección anterior) y se refresca el resto de la
+      // pantalla (precio, ciudades intermedias, puntos de encuentro) para que muestre el estado real
+      // en vez de quedarse pegado en lo que había antes de que el conductor empezara a tipear de nuevo.
+      () => {
+        delete ciudadesCoords[name];
+        renderPuntosEncuentroContainer();
+        intentarDetectarRuta();
+        actualizarPreview();
+      }
+    );
   }
 
   // Reemplaza el input de texto libre de "Ciudades intermedias" por chips + un buscador que solo
