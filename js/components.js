@@ -314,28 +314,26 @@ function puntoEncuentroInfoHtml(punto) {
 }
 
 // Tarjeta EDITABLE de "punto de encuentro" (para cuando el conductor está publicando un viaje):
-// mapa interactivo (tocar o arrastrar el pin) + buscador de texto como alternativa, para una ciudad
-// puntual del camino (origen, destino, o una de las intermedias). `ciudad` es la clave exacta que
-// después se usa en viaje.puntos_encuentro; `seleccionado` es el punto ya elegido para esa ciudad
-// en esta sesión de edición, si hay (se preserva al re-renderizar el contenedor completo, ver
-// js/views.js viewPublicar → renderPuntosEncuentroContainer). `requerido` (20 ago 2026, a pedido
-// del usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
-// partida y al punto de llegada") — true para origen y destino (no se puede publicar sin elegir un
-// punto ahí, ver validación en el submit de viewPublicar), false para ciudades intermedias (esas
-// siguen siendo opcionales). `centroInicial` ({lat,lng}, opcional, 20 ago 2026) es el centro con el
-// que arranca el mapa ANTES de que el conductor elija nada — viene de la ciudad ya geolocalizada
-// por el Autocomplete (origen/destino) o por la detección automática de ruta (intermedias), ver
-// js/views.js coordsPorCiudad; si no hay, el mapa arranca centrado en Argentina entera.
-function puntoEncuentroEditarHtml(ciudad, seleccionado, requerido, centroInicial) {
+// mapa interactivo (tocar o arrastrar el pin) + buscador de texto como alternativa. SOLO se usa
+// para origen y destino (20 ago 2026, a pedido del usuario: "quiero que todo se vea en google
+// maps... obviamente lo elige el chofer al punto de partida y al punto de llegada" — no se puede
+// publicar sin elegir un punto ahí, ver validación en el submit de viewPublicar). `ciudad` es la
+// clave exacta que después se usa en viaje.puntos_encuentro; `seleccionado` es el punto ya elegido
+// para esa ciudad en esta sesión de edición, si hay (se preserva al re-renderizar el contenedor
+// completo, ver js/views.js viewPublicar → renderPuntosEncuentroContainer). `centroInicial`
+// ({lat,lng}, opcional, 20 ago 2026) es el centro con el que arranca el mapa ANTES de que el
+// conductor elija nada — viene de la ciudad ya geolocalizada por el Autocomplete, ver js/views.js
+// coordsPorCiudad; si no hay, el mapa arranca centrado en Argentina entera.
+//
+// Las ciudades INTERMEDIAS ya NO usan esta tarjeta (21 ago 2026, a pedido del usuario: "que la
+// ubicacion para esta sea en la ruta en la entrada... el chofer solo elegiria que ciudades
+// intermedias quiere") — ver puntoEncuentroAutomaticoHtml más abajo.
+function puntoEncuentroEditarHtml(ciudad, seleccionado, centroInicial) {
   const centroLat = centroInicial && typeof centroInicial.lat === "number" ? centroInicial.lat : "";
   const centroLng = centroInicial && typeof centroInicial.lng === "number" ? centroInicial.lng : "";
   return `<div class="punto-encuentro-editar" data-ciudad="${escapeHtml(ciudad)}" data-centro-lat="${centroLat}" data-centro-lng="${centroLng}" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
-    <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">${requerido ? "(obligatorio)" : "(opcional)"}</span></label>
-    <small class="hint">${
-      requerido
-        ? "Tocá o arrastrá el pin en el mapa para marcar el lugar exacto donde vas a esperar (o dejar) a tus pasajeros — o buscalo por nombre más abajo (una estación de servicio, terminal, plaza, tu casa, etc.)."
-        : "Tocá el mapa o buscá un lugar puntual si tu ruta pasa por acá — la entrada a la ciudad o una estación de servicio suelen ser buenas opciones por defecto. Si no elegís nada, queda solo el nombre de la ciudad."
-    }</small>
+    <label style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)} <span class="muted" style="font-weight:400">(obligatorio)</span></label>
+    <small class="hint">Tocá o arrastrá el pin en el mapa para marcar el lugar exacto donde vas a esperar (o dejar) a tus pasajeros — o buscalo por nombre más abajo (una estación de servicio, terminal, plaza, tu casa, etc.).</small>
     <div class="pe-mapa-interactivo" style="width:100%;height:220px;border-radius:8px;margin-top:8px;background:var(--bg-soft,#eee);display:flex;align-items:center;justify-content:center">
       <span class="muted" style="font-size:.85em">Cargando mapa…</span>
     </div>
@@ -349,6 +347,29 @@ function puntoEncuentroEditarHtml(ciudad, seleccionado, requerido, centroInicial
         ? `${puntoEncuentroInfoHtml(seleccionado)}<button type="button" class="btn btn-outline danger pe-quitar-btn" style="margin-top:4px;padding:4px 10px;font-size:.85em">Quitar</button>`
         : ""
     }</div>
+  </div>`;
+}
+
+// Tarjeta de SOLO LECTURA para el punto de encuentro de una ciudad INTERMEDIA (21 ago 2026, a
+// pedido del usuario: "que la ubicacion para esta sea en la ruta en la entrada... el chofer solo
+// elegiria que ciudades intermedias quiere"). A diferencia de origen/destino (puntoEncuentroEditarHtml,
+// arriba), acá no hay nada para tocar ni buscar: `coords` es el punto real sobre la ruta que ya
+// calculó Google (Directions + Geocoding inverso, detección automática — ver js/views.js
+// intentarDetectarRuta — o el centro de la ciudad si se agregó a mano con el buscador de siempre
+// porque la detección automática no estaba disponible, ver mejorarCampoIntermedias). El conductor
+// solo elige QUÉ ciudades intermedias incluir (el checklist de arriba); dónde exactamente cae el
+// punto en cada una ya no es una decisión suya.
+function puntoEncuentroAutomaticoHtml(ciudad, coords) {
+  if (!coords) {
+    return `<div class="punto-encuentro-auto" style="margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px">
+      <div style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)}</div>
+      <small class="hint">Todavía no tenemos la ubicación exacta sobre la ruta para esta ciudad — se va a completar sola en cuanto esté disponible. No hace falta que hagas nada acá.</small>
+    </div>`;
+  }
+  return `<div class="punto-encuentro-auto" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
+    <div style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)}</div>
+    <small class="hint">Se toma automáticamente sobre el camino real — no hace falta elegir nada acá.</small>
+    ${mapaEmbedHtml(coords.lat, coords.lng)}
   </div>`;
 }
 
@@ -568,6 +589,37 @@ function wireCiudadesRutaChecklist(root, ciudades, onChange) {
         .filter((c) => c.checked)
         .map((c) => ciudades[Number(c.dataset.idx)]);
       onChange(seleccionadas);
+    });
+  });
+}
+
+// Selector de "qué camino real vas a hacer" cuando Google Directions encontró más de una ruta
+// distinta entre origen y destino — a pedido del usuario (21 ago 2026: "que lo elija el chofer",
+// ej. Pehuajó → La Plata por Chivilcoy/Luján/Moreno O por Bolívar/Saladillo/Lobos/Roque Pérez).
+// `rutas` es el array { resumen, distanciaKm, ciudades } que devuelve GET /api/lugares/ruta (ver
+// server/maps.js ciudadesEnRuta); `idxSeleccionada` es el índice tildado por defecto. El precio del
+// viaje NUNCA depende de cuál se elija acá (eso sigue siendo Distance Matrix API aparte) — esto
+// solo decide qué localidades intermedias se ofrecen para tildar/destildar.
+function rutaSelectorHtml(rutas, idxSeleccionada) {
+  return `<div class="ruta-selector" style="margin:6px 0">
+    <small class="hint">Google encontró más de un camino real entre estas dos ciudades — elegí el que realmente vas a hacer:</small>
+    ${rutas
+      .map(
+        (r, i) => `<label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;cursor:pointer">
+          <input type="radio" name="ruta-elegida" class="ruta-elegida-radio" value="${i}" ${i === idxSeleccionada ? "checked" : ""}>
+          <span>${escapeHtml(r.resumen)}${typeof r.distanciaKm === "number" ? ` <span class="muted">· ${r.distanciaKm} km</span>` : ""}</span>
+        </label>`
+      )
+      .join("")}
+  </div>`;
+}
+
+// Ata los radios de rutaSelectorHtml() dentro de `root` — llama a `onChange(idx)` con el índice de
+// `rutas` recién elegido cada vez que el conductor cambia de opción.
+function wireRutaSelector(root, onChange) {
+  root.querySelectorAll(".ruta-elegida-radio").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (radio.checked) onChange(Number(radio.value));
     });
   });
 }

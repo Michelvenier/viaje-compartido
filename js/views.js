@@ -527,7 +527,7 @@ function viewPublicar(app) {
 
           <div class="field">
             <label>Puntos de encuentro</label>
-            <small class="hint">Buscá y elegí en el mapa el lugar exacto donde vas a esperar a tus pasajeros en el origen y donde los dejás en el destino — en las ciudades intermedias es opcional (si tu ruta pasa por la entrada de la ciudad o por una estación de servicio, esos son buenos puntos por defecto).</small>
+            <small class="hint">Buscá y elegí en el mapa el lugar exacto donde vas a esperar a tus pasajeros en el origen y donde los dejás en el destino. En las ciudades intermedias no hay nada para elegir acá — el punto se toma solo, automáticamente, sobre el camino real (ver el checklist de "Ciudades intermedias" más arriba para elegir cuáles incluir).</small>
             <div id="puntos-encuentro-container"></div>
           </div>
 
@@ -669,14 +669,21 @@ function viewPublicar(app) {
       cont.innerHTML = `<p class="muted">Elegí origen y destino para poder marcar puntos de encuentro.</p>`;
       return;
     }
-    // Origen y destino son obligatorios (20 ago 2026, a pedido del usuario: "quiero que todo se vea
-    // en google maps... obviamente lo elige el chofer al punto de partida y al punto de llegada") —
-    // las ciudades intermedias siguen siendo opcionales, con la entrada a la ciudad o una estación
-    // de servicio como sugerencia por defecto (ver hint de puntoEncuentroEditarHtml).
+    // Origen y destino son obligatorios y los elige el conductor a mano (20 ago 2026, a pedido del
+    // usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
+    // partida y al punto de llegada"). Las ciudades intermedias, en cambio, YA NO se eligen a mano
+    // (21 ago 2026, a pedido del usuario: "que la ubicacion para esta sea en la ruta en la
+    // entrada... el chofer solo elegiria que ciudades intermedias quiere") — se muestran de solo
+    // lectura con el punto que ya se calculó automáticamente (ver intentarDetectarRuta y
+    // mejorarCampoIntermedias más abajo, que son quienes completan puntosEncuentro para esos casos).
     cont.innerHTML = ciudadesUnicas
-      .map((c) => puntoEncuentroEditarHtml(c, puntosEncuentro[c], c === origen_ciudad || c === destino_ciudad, coordsPorCiudad[c]))
+      .map((c) =>
+        c === origen_ciudad || c === destino_ciudad
+          ? puntoEncuentroEditarHtml(c, puntosEncuentro[c], coordsPorCiudad[c])
+          : puntoEncuentroAutomaticoHtml(c, coordsPorCiudad[c])
+      )
       .join("");
-    wirePuntosEncuentro(cont, puntosEncuentro);
+    wirePuntosEncuentro(cont, puntosEncuentro); // solo ata las tarjetas .punto-encuentro-editar (origen/destino) — las automáticas no tienen nada que atar
   }
   renderPuntosEncuentroContainer();
   ["origen_ciudad", "destino_ciudad"].forEach((n) => {
@@ -773,6 +780,13 @@ function viewPublicar(app) {
       input.value = "";
       if (!intermediasCiudades.includes(lugar.nombre)) {
         intermediasCiudades.push(lugar.nombre);
+        // Mismo criterio automático que intentarDetectarRuta (21 ago 2026) aunque acá estemos en
+        // el modo manual de respaldo (Directions/Geocoding no disponibles) — el punto no es "sobre
+        // la ruta real" como en la detección automática, es el centro de la ciudad que devolvió el
+        // Autocomplete, pero sigue siendo un dato real de Google, nunca inventado, y el conductor
+        // tampoco tiene que elegir nada acá.
+        coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
+        puntosEncuentro[lugar.nombre] = { nombre: lugar.nombre, direccion: "", lat: lugar.lat, lng: lugar.lng };
         renderChipsIntermedias();
         renderPuntosEncuentroContainer();
       }
@@ -785,13 +799,22 @@ function viewPublicar(app) {
   // (20 ago 2026, a pedido explícito del usuario: "NO QUIERO QUE EL CHOFER TENGA QUE AGREGAR LA
   // CIUDAD INTERMEDIA, QUE LO TOME DE GOOGLE MAPS SOLO LA APLICACION, SEGUN LA RUTA QUE ELIJA EL
   // CHOFER"). Se dispara cada vez que hay coordenadas exactas de origen Y destino (ciudadesCoords,
-  // ver mejorarCampoCiudad) — le pide a GET /api/lugares/ruta (Directions + Geocoding inverso, ver
-  // server/maps.js ciudadesEnRuta) las ciudades reales del camino. Si funciona, muestra un checklist
-  // (ciudadesRutaChecklistHtml/wireCiudadesRutaChecklist en js/components.js) con todas tildadas
-  // por default — el conductor solo tiene que destildar lo que no quiera, nunca escribir ni buscar
-  // nada. Si la detección no está disponible (Directions/Geocoding APIs sin habilitar en Google
-  // Cloud, error puntual, etc.), cae al buscador manual de chips de siempre (mejorarCampoIntermedias)
-  // — nunca bloquea la publicación por esto.
+  // ver mejorarCampoCiudad) — le pide a GET /api/lugares/ruta (Directions con alternativas +
+  // Geocoding inverso, ver server/maps.js ciudadesEnRuta) las ciudades reales de CADA camino
+  // distinto que Google encuentre entre esas dos coordenadas.
+  //
+  // "SEGUN LA RUTA QUE ELIJA EL CHOFER" (21 ago 2026, reiterado): cuando Google devuelve más de un
+  // camino real (ej. Pehuajó → La Plata por Chivilcoy/Luján/Moreno, o por Bolívar/Saladillo/Lobos/
+  // Roque Pérez), se muestra primero un selector (rutaSelectorHtml/wireRutaSelector en
+  // js/components.js) para que el conductor elija cuál va a hacer realmente, y recién ahí el
+  // checklist de ciudades intermedias corresponde a ESA ruta puntual. Si Google solo encontró un
+  // camino, no se muestra ningún selector — va directo al checklist, igual que antes.
+  //
+  // El checklist (ciudadesRutaChecklistHtml/wireCiudadesRutaChecklist en js/components.js) siempre
+  // arranca con todas tildadas por default — el conductor solo tiene que destildar lo que no
+  // quiera, nunca escribir ni buscar nada. Si la detección no está disponible (Directions/Geocoding
+  // APIs sin habilitar en Google Cloud, error puntual, etc.), cae al buscador manual de chips de
+  // siempre (mejorarCampoIntermedias) — nunca bloquea la publicación por esto.
   //
   // Nota de diseño: si el conductor ya revisó/destildó ciudades y después cambia origen o destino
   // de nuevo, se vuelve a detectar todo de cero (se pierde lo que había destildado) — es más simple
@@ -826,7 +849,7 @@ function viewPublicar(app) {
           `&origen_ciudad=${encodeURIComponent(origenCiudad)}&destino_ciudad=${encodeURIComponent(destinoCiudad)}`
       );
     } catch {
-      resp = { disponible: false, ciudades: [] };
+      resp = { disponible: false, rutas: [] };
     }
     if (miToken !== rutaDetectadaToken || !cont.isConnected) return; // llegó tarde, ya no aplica más
 
@@ -835,24 +858,56 @@ function viewPublicar(app) {
       return;
     }
 
-    intermediasCiudades.length = 0;
-    intermediasCiudades.push(...resp.ciudades.map((c) => c.nombre));
-    ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
-    resp.ciudades.forEach((c) => {
-      coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng };
-    });
+    // Siempre al menos una "ruta" para no tener que ramificar el resto de la función — si Google no
+    // devolvió ninguna (no debería pasar con disponible=true, pero por las dudas) se trata como una
+    // ruta directa sin ciudades detectadas, igual que antes del selector.
+    const rutas = resp.rutas && resp.rutas.length ? resp.rutas : [{ resumen: "", distanciaKm: null, ciudades: [] }];
+    let idxElegida = 0;
 
-    cont.innerHTML = `<label>Ciudades intermedias</label>
-      <small class="hint">Detectamos estas localidades en el camino real entre ${escapeHtml(origenCiudad)} y ${escapeHtml(destinoCiudad)} — destildá las que no quieras que aparezcan en las búsquedas de otros pasajeros. No hace falta agregar ninguna a mano.</small>
-      <div id="ciudades-ruta-checklist" style="margin-top:6px"></div>`;
-    const checklistCont = cont.querySelector("#ciudades-ruta-checklist");
-    checklistCont.innerHTML = ciudadesRutaChecklistHtml(resp.ciudades);
-    wireCiudadesRutaChecklist(checklistCont, resp.ciudades, (seleccionadas) => {
+    const pintarChecklist = () => {
+      if (miToken !== rutaDetectadaToken || !cont.isConnected) return; // el conductor pudo haber cambiado de ciudad mientras tanto
+      const ruta = rutas[idxElegida];
+
       intermediasCiudades.length = 0;
-      intermediasCiudades.push(...seleccionadas.map((c) => c.nombre));
+      intermediasCiudades.push(...ruta.ciudades.map((c) => c.nombre));
+      ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
+      ruta.ciudades.forEach((c) => {
+        coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng };
+        // Punto de encuentro AUTOMÁTICO para intermedias (21 ago 2026, "que la ubicacion para esta
+        // sea en la ruta en la entrada... el chofer solo elegiria que ciudades intermedias
+        // quiere") — el conductor no elige nada acá, se usa directo el punto real sobre el camino
+        // que ya calculó Directions + Geocoding inverso (ver server/maps.js ciudadesEnRuta). Nunca
+        // pisa un punto de origen/destino porque esos nombres de ciudad nunca están en
+        // ruta.ciudades (ciudadesEnRuta los excluye a propósito).
+        puntosEncuentro[c.nombre] = { nombre: `Sobre la ruta, en ${c.nombre}`, direccion: "", lat: c.lat, lng: c.lng };
+      });
+
+      cont.innerHTML = `<label>Ciudades intermedias</label>
+        <small class="hint">Detectamos estas localidades en el camino real entre ${escapeHtml(origenCiudad)} y ${escapeHtml(destinoCiudad)} — destildá las que no quieras que aparezcan en las búsquedas de otros pasajeros. No hace falta agregar ninguna a mano.</small>
+        ${rutas.length > 1 ? rutaSelectorHtml(rutas, idxElegida) : ""}
+        <div id="ciudades-ruta-checklist" style="margin-top:6px"></div>`;
+
+      if (rutas.length > 1) {
+        // Cambiar de ruta reinicia el checklist de intermedias de cero para la ruta nueva — mismo
+        // criterio que cuando cambia origen/destino (ver nota de diseño más arriba): es más simple
+        // y consistente que tratar de "adivinar" qué mantener entre dos caminos reales distintos.
+        wireRutaSelector(cont, (nuevoIdx) => {
+          idxElegida = nuevoIdx;
+          pintarChecklist();
+        });
+      }
+
+      const checklistCont = cont.querySelector("#ciudades-ruta-checklist");
+      checklistCont.innerHTML = ciudadesRutaChecklistHtml(ruta.ciudades);
+      wireCiudadesRutaChecklist(checklistCont, ruta.ciudades, (seleccionadas) => {
+        intermediasCiudades.length = 0;
+        intermediasCiudades.push(...seleccionadas.map((c) => c.nombre));
+        renderPuntosEncuentroContainer();
+      });
       renderPuntosEncuentroContainer();
-    });
-    renderPuntosEncuentroContainer();
+    };
+
+    pintarChecklist();
   }
 
   // Nota: el "punto de partida exacto" ya NO es un campo de texto aparte (ver más abajo, submit) —

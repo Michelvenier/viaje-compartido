@@ -244,65 +244,105 @@ async function nombreLocalidadEnPunto(apiKey, punto) {
   }
 }
 
-const RUTA_MAX_PUNTOS = 12; // tope de llamadas a Geocoding por viaje publicado, para no disparar el costo
+const RUTA_MAX_PUNTOS = 12; // tope de llamadas a Geocoding por RUTA (ver RUTA_MAX_ALTERNATIVAS abajo — con varias alternativas esto se multiplica)
 const RUTA_MIN_ESPACIADO_KM = 15; // no tiene sentido muestrear más seguido que esto
+const RUTA_MAX_ALTERNATIVAS = 3; // Google Directions normalmente no devuelve más que esto de todos modos
 
 // Calcula las ciudades por las que pasa la ruta real entre origenCoords y destinoCoords (ambos
-// {lat, lng}, los mismos que ya resuelve el Autocomplete de ciudades del navegador). Devuelve
-// { disponible, ciudades }:
+// {lat, lng}, los mismos que ya resuelve el Autocomplete de ciudades del navegador). A pedido del
+// usuario (20 ago 2026 y reiterado 21 ago 2026 — "que lo elija el chofer", ej. Pehuajó → La Plata
+// puede ir por Chivilcoy/Luján/Moreno O por Bolívar/Saladillo/Lobos/Roque Pérez, son caminos reales
+// distintos), se piden TODAS las alternativas que Google ofrezca (alternatives=true) — no solo la
+// más rápida — y se procesa cada una por separado, así el conductor puede elegir cuál va a hacer
+// realmente y las ciudades intermedias que se detectan corresponden a ESA ruta, no a otra.
+//
+// Devuelve { disponible, rutas }:
 //   - disponible=false: la función no pudo correr (key sin configurar, Directions/Geocoding APIs
 //     no habilitadas, error de red, etc.) — quien llama tiene que caer al modo manual de siempre.
-//   - disponible=true, ciudades=[]: la ruta se calculó bien pero es corta o no se detectó ninguna
-//     localidad relevante en el camino — es un resultado válido, no un error.
-//   - disponible=true, ciudades=[{nombre,lat,lng}, ...]: en el orden real en que se encuentran
-//     yendo de origen a destino. Nunca incluye al origen ni al destino mismos.
+//   - disponible=true, rutas=[]: no debería pasar en la práctica (si Directions devuelve status OK
+//     siempre hay al menos una ruta), pero se contempla por las dudas.
+//   - disponible=true, rutas=[{resumen, distanciaKm, ciudades:[{nombre,lat,lng}, ...]}, ...]: una
+//     entrada por cada camino real distinto que encontró Google, en el orden en que Google los
+//     devuelve (la primera es la que Google recomienda por defecto). `ciudades` va en el orden real
+//     en que se encuentran yendo de origen a destino y nunca incluye al origen ni al destino mismos.
+//     `distanciaKm` es la distancia real de ESA ruta puntual (suma de los tramos que devuelve
+//     Directions) — SOLO se usa para mostrarle la opción al conductor en el selector, nunca para el
+//     precio del viaje (eso sigue siendo 100% Distance Matrix API, ver distanciaKmEntreCiudades
+//     arriba, que se calcula aparte y de forma independiente de cuál ruta haya elegido el conductor
+//     acá). Rutas que terminaron con exactamente el mismo conjunto de ciudades detectadas se
+//     descartan (Google a veces devuelve "alternativas" que solo difieren en un tramo muy corto,
+//     ej. una rotonda distinta a la salida de una ciudad, y mostrarlas como opciones separadas solo
+//     confundiría al conductor).
 async function ciudadesEnRuta(origenCoords, destinoCoords, origenCiudad, destinoCiudad) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   const coordsValidas = (c) => c && typeof c.lat === "number" && typeof c.lng === "number";
   if (!apiKey || !coordsValidas(origenCoords) || !coordsValidas(destinoCoords)) {
-    return { disponible: false, ciudades: [] };
+    return { disponible: false, rutas: [] };
   }
 
-  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origenCoords.lat},${origenCoords.lng}&destination=${destinoCoords.lat},${destinoCoords.lng}&key=${apiKey}`;
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origenCoords.lat},${origenCoords.lng}&destination=${destinoCoords.lat},${destinoCoords.lng}&alternatives=true&key=${apiKey}`;
   let data;
   try {
     const resp = await fetch(url);
     if (!resp.ok) {
       console.error("Google Directions respondió", resp.status);
-      return { disponible: false, ciudades: [] };
+      return { disponible: false, rutas: [] };
     }
     data = await resp.json();
   } catch (err) {
     console.error("Error consultando Google Directions:", err.message);
-    return { disponible: false, ciudades: [] };
+    return { disponible: false, rutas: [] };
   }
   if (data.status !== "OK" || !data.routes || !data.routes[0]) {
     console.error("Google Directions status:", data.status, data.error_message || "");
-    return { disponible: false, ciudades: [] };
+    return { disponible: false, rutas: [] };
   }
 
-  const encoded = data.routes[0].overview_polyline && data.routes[0].overview_polyline.points;
-  if (!encoded) return { disponible: false, ciudades: [] };
-  const polyline = decodePolyline(encoded);
-  if (polyline.length < 2) return { disponible: true, ciudades: [] };
+  const vistosBase = new Set([normalizarNombre(origenCiudad), normalizarNombre(destinoCiudad)]);
+  const candidatas = data.routes.slice(0, RUTA_MAX_ALTERNATIVAS);
 
-  const puntosMuestra = muestrearPuntos(polyline, RUTA_MAX_PUNTOS, RUTA_MIN_ESPACIADO_KM);
-  if (!puntosMuestra.length) return { disponible: true, ciudades: [] };
+  const procesadas = await Promise.all(
+    candidatas.map(async (route) => {
+      const metros = (route.legs || []).reduce((acc, l) => acc + (l.distance?.value || 0), 0);
+      const distanciaKm = metros ? Math.round((metros / 1000) * 10) / 10 : null;
+      const encoded = route.overview_polyline && route.overview_polyline.points;
+      if (!encoded) return { distanciaKm, ciudades: [] };
+      const polyline = decodePolyline(encoded);
+      if (polyline.length < 2) return { distanciaKm, ciudades: [] };
 
-  const conNombre = await Promise.all(
-    puntosMuestra.map(async (p) => ({ ...p, nombre: await nombreLocalidadEnPunto(apiKey, p) }))
+      const puntosMuestra = muestrearPuntos(polyline, RUTA_MAX_PUNTOS, RUTA_MIN_ESPACIADO_KM);
+      if (!puntosMuestra.length) return { distanciaKm, ciudades: [] };
+
+      const conNombre = await Promise.all(
+        puntosMuestra.map(async (p) => ({ ...p, nombre: await nombreLocalidadEnPunto(apiKey, p) }))
+      );
+
+      const vistos = new Set(vistosBase);
+      const ciudades = [];
+      for (const p of conNombre) {
+        if (!p.nombre) continue;
+        const norm = normalizarNombre(p.nombre);
+        if (vistos.has(norm)) continue;
+        vistos.add(norm);
+        ciudades.push({ nombre: p.nombre, lat: p.lat, lng: p.lng });
+      }
+      return { distanciaKm, ciudades };
+    })
   );
 
-  const vistos = new Set([normalizarNombre(origenCiudad), normalizarNombre(destinoCiudad)]);
-  const ciudades = [];
-  for (const p of conNombre) {
-    if (!p.nombre) continue;
-    const norm = normalizarNombre(p.nombre);
-    if (vistos.has(norm)) continue;
-    vistos.add(norm);
-    ciudades.push({ nombre: p.nombre, lat: p.lat, lng: p.lng });
+  const clavesVistas = new Set();
+  const rutas = [];
+  for (const r of procesadas) {
+    const clave = r.ciudades.map((c) => normalizarNombre(c.nombre)).join("|");
+    if (clavesVistas.has(clave)) continue;
+    clavesVistas.add(clave);
+    const resumen = r.ciudades.length
+      ? `Vía ${r.ciudades.slice(0, 3).map((c) => c.nombre).join(", ")}`
+      : "Ruta directa (sin localidades intermedias detectadas)";
+    rutas.push({ resumen, distanciaKm: r.distanciaKm, ciudades: r.ciudades });
   }
-  return { disponible: true, ciudades };
+
+  return { disponible: true, rutas };
 }
 
 module.exports = { distanciaKmEntreCiudades, buscarLugares, ciudadesEnRuta };

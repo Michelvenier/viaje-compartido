@@ -30,13 +30,15 @@ async function buscar(req, res, params, query) {
 }
 
 // GET /api/lugares/ruta?origen_lat=...&origen_lng=...&destino_lat=...&destino_lng=...&origen_ciudad=
-// ...&destino_ciudad=... — a pedido del usuario (20 ago 2026): calcula automáticamente las
-// ciudades por las que pasa la ruta real entre origen y destino (Directions + Geocoding inverso,
-// ver server/maps.js ciudadesEnRuta), para que el conductor NO tenga que agregarlas a mano. Sin
-// sesión a propósito, mismo criterio que buscar()/mapsKey() de acá arriba/abajo. Devuelve
-// { disponible, ciudades } — ver el comentario de ciudadesEnRuta en server/maps.js para el
-// significado exacto de cada caso; el frontend (js/views.js viewPublicar) cae al modo manual de
-// siempre cuando disponible=false.
+// ...&destino_ciudad=... — a pedido del usuario (20 ago 2026, "que lo elija el chofer" reiterado el
+// 21 ago 2026): calcula automáticamente las ciudades por las que pasa CADA camino real distinto
+// entre origen y destino (Directions con alternativas + Geocoding inverso, ver server/maps.js
+// ciudadesEnRuta), para que el conductor NO tenga que agregarlas a mano y pueda elegir cuál ruta va
+// a hacer realmente cuando hay más de una opción (ej. Pehuajó → La Plata por Chivilcoy o por
+// Bolívar/Saladillo). Sin sesión a propósito, mismo criterio que buscar()/mapsKey() de acá
+// arriba/abajo. Devuelve { disponible, rutas } — ver el comentario de ciudadesEnRuta en
+// server/maps.js para el significado exacto de cada caso; el frontend (js/views.js viewPublicar)
+// cae al modo manual de siempre cuando disponible=false.
 async function ruta(req, res, params, query) {
   const num = (v) => (v === undefined || v === null || v === "" ? NaN : Number(v));
   const origenCoords = { lat: num(query.origen_lat), lng: num(query.origen_lng) };
