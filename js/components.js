@@ -350,26 +350,28 @@ function puntoEncuentroEditarHtml(ciudad, seleccionado, centroInicial) {
   </div>`;
 }
 
-// Tarjeta de SOLO LECTURA para el punto de encuentro de una ciudad INTERMEDIA (21 ago 2026, a
-// pedido del usuario: "que la ubicacion para esta sea en la ruta en la entrada... el chofer solo
-// elegiria que ciudades intermedias quiere"). A diferencia de origen/destino (puntoEncuentroEditarHtml,
-// arriba), acá no hay nada para tocar ni buscar: `coords` es el punto real sobre la ruta que ya
-// calculó Google (Directions + Geocoding inverso, detección automática — ver js/views.js
-// intentarDetectarRuta — o el centro de la ciudad si se agregó a mano con el buscador de siempre
-// porque la detección automática no estaba disponible, ver mejorarCampoIntermedias). El conductor
-// solo elige QUÉ ciudades intermedias incluir (el checklist de arriba); dónde exactamente cae el
-// punto en cada una ya no es una decisión suya.
-function puntoEncuentroAutomaticoHtml(ciudad, coords) {
-  if (!coords) {
-    return `<div class="punto-encuentro-auto" style="margin-top:10px;padding:10px;border:1px dashed var(--border);border-radius:8px">
-      <div style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)}</div>
-      <small class="hint">Todavía no tenemos la ubicación exacta sobre la ruta para esta ciudad — se va a completar sola en cuanto esté disponible. No hace falta que hagas nada acá.</small>
-    </div>`;
-  }
+// Tarjeta de SOLO LECTURA para el punto de encuentro de una ciudad INTERMEDIA. Historial: primero
+// (21 ago 2026) mostraba el punto real sobre la ruta con un mapa embebido; el mismo día el usuario
+// pidió sacarlo: "saquemos el mapa de ciudades intermedias, que quede solo para origen y destino...
+// que diga que a las ciudades intermedias, el punto de encuentro es en la ruta, estacion de
+// servicio o entrada, a coordinar con chofer" — el punto que detecta Google automáticamente es solo
+// una MUESTRA sobre el trazado de la ruta, no necesariamente un lugar real donde parar (puede caer
+// en medio de una autopista), así que mostrarlo como si fuera un pin exacto confundía más de lo que
+// ayudaba. Ahora es un texto fijo, sin mapa ni coordenadas — el lugar puntual para subir/bajar ahí
+// se coordina directo entre conductor y pasajero (por WhatsApp, una vez aceptada la reserva). El
+// conductor solo elige QUÉ ciudades intermedias incluir (el checklist de arriba); dónde exactamente
+// para cada una no es (ni fue nunca) una decisión suya en el mapa.
+//
+// Este mismo texto es el que termina viéndose también en la reserva del pasajero cuando su tramo
+// arranca o termina en una intermedia (ver puntoEncuentroVerHtml/puntosEncuentroReservaHtml más
+// arriba) — no por casualidad: js/views.js guarda esto mismo en `puntosEncuentro[ciudad]` SIN
+// lat/lng (ver intentarDetectarRuta/mejorarCampoIntermedias), y puntoEncuentroVerHtml ya se salta
+// el mapa solo con que falten las coordenadas — así queda consistente en los dos lados sin tener
+// que tocar esa función.
+function puntoEncuentroAutomaticoHtml(ciudad) {
   return `<div class="punto-encuentro-auto" style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px">
     <div style="font-weight:600">📍 Punto de encuentro en ${escapeHtml(ciudad)}</div>
-    <small class="hint">Se toma automáticamente sobre el camino real — no hace falta elegir nada acá.</small>
-    ${mapaEmbedHtml(coords.lat, coords.lng)}
+    <small class="hint">En la ruta, a la entrada de la ciudad o en una estación de servicio — se coordina directo con el conductor.</small>
   </div>`;
 }
 

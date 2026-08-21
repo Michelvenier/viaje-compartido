@@ -672,15 +672,17 @@ function viewPublicar(app) {
     // Origen y destino son obligatorios y los elige el conductor a mano (20 ago 2026, a pedido del
     // usuario: "quiero que todo se vea en google maps... obviamente lo elige el chofer al punto de
     // partida y al punto de llegada"). Las ciudades intermedias, en cambio, YA NO se eligen a mano
-    // (21 ago 2026, a pedido del usuario: "que la ubicacion para esta sea en la ruta en la
-    // entrada... el chofer solo elegiria que ciudades intermedias quiere") — se muestran de solo
-    // lectura con el punto que ya se calculó automáticamente (ver intentarDetectarRuta y
-    // mejorarCampoIntermedias más abajo, que son quienes completan puntosEncuentro para esos casos).
+    // (21 ago 2026: "que la ubicacion para esta sea en la ruta en la entrada... el chofer solo
+    // elegiria que ciudades intermedias quiere", y después "saquemos el mapa de ciudades
+    // intermedias... que diga que a las ciudades intermedias, el punto de encuentro es en la ruta,
+    // estacion de servicio o entrada, a coordinar con chofer") — se muestran de solo lectura con un
+    // texto fijo, sin mapa (ver js/components.js puntoEncuentroAutomaticoHtml), completado
+    // automáticamente por intentarDetectarRuta/mejorarCampoIntermedias más abajo.
     cont.innerHTML = ciudadesUnicas
       .map((c) =>
         c === origen_ciudad || c === destino_ciudad
           ? puntoEncuentroEditarHtml(c, puntosEncuentro[c], coordsPorCiudad[c])
-          : puntoEncuentroAutomaticoHtml(c, coordsPorCiudad[c])
+          : puntoEncuentroAutomaticoHtml(c)
       )
       .join("");
     wirePuntosEncuentro(cont, puntosEncuentro); // solo ata las tarjetas .punto-encuentro-editar (origen/destino) — las automáticas no tienen nada que atar
@@ -780,13 +782,16 @@ function viewPublicar(app) {
       input.value = "";
       if (!intermediasCiudades.includes(lugar.nombre)) {
         intermediasCiudades.push(lugar.nombre);
-        // Mismo criterio automático que intentarDetectarRuta (21 ago 2026) aunque acá estemos en
-        // el modo manual de respaldo (Directions/Geocoding no disponibles) — el punto no es "sobre
-        // la ruta real" como en la detección automática, es el centro de la ciudad que devolvió el
-        // Autocomplete, pero sigue siendo un dato real de Google, nunca inventado, y el conductor
-        // tampoco tiene que elegir nada acá.
-        coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng };
-        puntosEncuentro[lugar.nombre] = { nombre: lugar.nombre, direccion: "", lat: lugar.lat, lng: lugar.lng };
+        // Mismo criterio automático que intentarDetectarRuta (21 ago 2026, ver el comentario largo
+        // ahí y en js/components.js puntoEncuentroAutomaticoHtml) aunque acá estemos en el modo
+        // manual de respaldo (Directions/Geocoding no disponibles) — el conductor tampoco elige
+        // nada acá, y el texto es el mismo genérico sin lat/lng (a coordinar con el conductor), no
+        // el centro puntual de la ciudad.
+        coordsPorCiudad[lugar.nombre] = { lat: lugar.lat, lng: lugar.lng }; // se guarda igual (dato real de Google) aunque ya no se muestre en ningún mapa
+        puntosEncuentro[lugar.nombre] = {
+          nombre: "En la ruta, a la entrada de la ciudad o en una estación de servicio — a coordinar con el conductor.",
+          direccion: "",
+        };
         renderChipsIntermedias();
         renderPuntosEncuentroContainer();
       }
@@ -892,14 +897,21 @@ function viewPublicar(app) {
       intermediasCiudades.push(...ruta.ciudades.map((c) => c.nombre));
       ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
       ruta.ciudades.forEach((c) => {
-        coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng };
-        // Punto de encuentro AUTOMÁTICO para intermedias (21 ago 2026, "que la ubicacion para esta
-        // sea en la ruta en la entrada... el chofer solo elegiria que ciudades intermedias
-        // quiere") — el conductor no elige nada acá, se usa directo el punto real sobre el camino
-        // que ya calculó Directions + Geocoding inverso (ver server/maps.js ciudadesEnRuta). Nunca
-        // pisa un punto de origen/destino porque esos nombres de ciudad nunca están en
-        // ruta.ciudades (ciudadesEnRuta los excluye a propósito).
-        puntosEncuentro[c.nombre] = { nombre: `Sobre la ruta, en ${c.nombre}`, direccion: "", lat: c.lat, lng: c.lng };
+        coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng }; // se guarda igual (real, de Directions/Geocoding) aunque ya no se muestre en ningún mapa — puede servir a futuro
+        // Punto de encuentro AUTOMÁTICO para intermedias: el conductor no elige nada acá. A pedido
+        // del usuario (21 ago 2026, segunda vuelta: "saquemos el mapa de ciudades intermedias...
+        // que diga que a las ciudades intermedias, el punto de encuentro es en la ruta, estacion de
+        // servicio o entrada, a coordinar con chofer") esto ya NO lleva lat/lng — es a propósito un
+        // texto fijo, no el punto puntual que detectó Directions (ver comentario largo en
+        // js/components.js puntoEncuentroAutomaticoHtml). Sin lat/lng acá, puntoEncuentroVerHtml
+        // (que también usa esto para mostrárselo al pasajero en su reserva) tampoco dibuja mapa —
+        // queda consistente en los dos lados sin tocar esa función. Nunca pisa un punto de
+        // origen/destino porque esos nombres de ciudad nunca están en ruta.ciudades (ciudadesEnRuta
+        // los excluye a propósito).
+        puntosEncuentro[c.nombre] = {
+          nombre: "En la ruta, a la entrada de la ciudad o en una estación de servicio — a coordinar con el conductor.",
+          direccion: "",
+        };
       });
 
       cont.innerHTML = `<label>Ciudades intermedias</label>
