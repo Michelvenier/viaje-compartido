@@ -199,7 +199,7 @@ async function viewDetalle(app, params) {
       titulo: "¿Cómo se calculó este precio?",
       html: `<p>Distancia estimada: <strong>${viaje.distancia_km} km</strong>. Nafta usada como referencia: <strong>${fmtMoney(viaje.precio_nafta_usado)}/litro</strong>.
       Costo de combustible: <strong>${fmtMoney(viaje.costo_combustible)}</strong> + peajes <strong>${fmtMoney(viaje.peajes_estimados)}</strong> =
-      Techo Operativo de <strong>${fmtMoney(viaje.cto_total)}</strong>, dividido entre ${viaje.divisor_precio} (conductor + asientos ofrecidos).
+      Techo Operativo de <strong>${fmtMoney(viaje.cto_total)}</strong>, dividido entre ${viaje.divisor_precio}.
       Este precio lo calcula el sistema automáticamente según la ciudad de destino — el conductor no puede modificarlo.
       <a href="#/reglas-de-la-ruta">Ver el detalle completo →</a></p>`,
     },
@@ -2205,7 +2205,7 @@ async function viewAdmin(app) {
         <h3>Valores de referencia (actualización quincenal/mensual)</h3>
         <p class="muted">Estos valores alimentan el algoritmo de cálculo de precio (Reglas de la Ruta, punto 3).</p>
         <form id="form-config" class="grid-2">
-          <div class="field"><label>Precio nafta súper ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
+          <div class="field"><label>Precio nafta V Power ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
           <div class="field"><label>Comisión de la plataforma (%)</label><input type="number" name="comision_plataforma_pct" value="${config.comision_plataforma_pct}"></div>
           <div class="field"><label>Comisión mínima ($)</label><input type="number" name="comision_minima" value="${config.comision_minima}"></div>
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>

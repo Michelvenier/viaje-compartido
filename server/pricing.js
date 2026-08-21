@@ -134,6 +134,15 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
 }
 
 async function calcularPrecioSugerido(distanciaKm, peajesTotal, asientosOfrecidos = 3) {
+  // La clave de config sigue llamándose "precio_nafta_super" por compatibilidad con el valor ya
+  // guardado en la base de producción (renombrar la clave forzaría a resembrarla y podría pisar el
+  // precio real que el admin ya cargó a mano) — pero desde el 21 ago 2026, a pedido del usuario
+  // ("que el calculo sea sobre nafta v power"), lo que representa este valor es el precio de
+  // referencia de Nafta V Power (la premium), no la Súper — así lo dice ahora el label en el panel
+  // admin ("Valores de referencia") y en Reglas de la Ruta. El NÚMERO en sí ($/litro) no se tocó acá
+  // porque es un precio real (ver la regla "OJO CON LOS PRECIOS" — nunca inventar valores de este
+  // tipo) — el admin tiene que actualizarlo a mano desde el panel si el $/litro de V Power es
+  // distinto al que ya estaba cargado como Súper.
   const precioNafta = await getConfig("precio_nafta_super");
   const consumoPor100km = await getConfig("consumo_litros_100km");
   const precioMinimoPorKm = (await getConfig("precio_minimo_por_km")) || 0;
@@ -143,8 +152,18 @@ async function calcularPrecioSugerido(distanciaKm, peajesTotal, asientosOfrecido
   const costoCombustible = litros * precioNafta;
   const ctoTotal = costoCombustible + peajesTotal;
 
+  // Divisor FIJO en 4 (21 ago 2026, a pedido explícito del usuario: "No me cambies el precio por
+  // cantidad de personas que viajan! Es segun la nafta y los km que te pase, el minimo y nada
+  // mas"). Hasta acá, si el conductor ofrecía el 4to asiento el divisor pasaba a 5 ("reprorrateo
+  // entre 5" del algoritmo original, ver claude/viaje-compartido-app-v1.md) — eso hacía que el
+  // precio SUGERIDO por asiento bajara solo por ofrecer más asientos, sin que cambiara nada del
+  // costo real del viaje (misma nafta, mismos peajes, mismos km). El usuario decidió sacar esa
+  // variación: el precio por asiento ahora sale SIEMPRE de (nafta + peajes) ÷ 4, sea que el auto
+  // ofrezca 3 o 4 asientos — nunca depende de `asientosOfrecidos`. `asientos` se sigue calculando y
+  // devolviendo (clamp 1-4) porque otras partes de la app lo siguen usando para mostrar cuántos
+  // asientos tiene el viaje, pero ya no participa en la cuenta del precio.
   const asientos = Math.min(Math.max(Number(asientosOfrecidos) || 3, 1), 4);
-  const divisor = asientos >= 4 ? 5 : 4;
+  const divisor = 4;
   const precioPorCosto = ctoTotal / divisor;
 
   // Piso mínimo por asiento: nunca menos que precioMinimoBase (tarifa mínima para trayectos

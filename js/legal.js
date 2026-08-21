@@ -289,7 +289,7 @@ const REGLAS_SECTIONS = [
       <p>El objetivo de este mecanismo es que el conductor recupere parte de <strong>lo que ese viaje le cuesta</strong>, nunca que
       genere una ganancia por llevar pasajeros.</p>
       <h4>Valor de referencia</h4>
-      <p>Tomamos un precio de referencia de la nafta súper y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
+      <p>Tomamos un precio de referencia de la nafta V Power y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
       consumo estimado del vehículo (por defecto, 10 litros cada 100 km) y el piso mínimo por kilómetro mencionado abajo, están
       configurados desde el panel de administración y pueden actualizarse cuando cambien los costos reales del corredor.</p>
       <h4>Algoritmo</h4>
@@ -298,7 +298,7 @@ const REGLAS_SECTIONS = [
         <li><strong>Litros totales</strong> = (distancia en km / 100) × consumo de referencia</li>
         <li><strong>Costo de combustible</strong> = litros totales × precio de referencia de la nafta</li>
         <li><strong>Costo Total del Viaje (C.T.O.)</strong> = costo de combustible + peajes vigentes</li>
-        <li><strong>Valor por asiento según costo</strong> = C.T.O. / (asientos ofrecidos + 1, el conductor)</li>
+        <li><strong>Valor por asiento según costo</strong> = C.T.O. / 4 (siempre, no cambia según la cantidad de asientos que ofrezca el conductor)</li>
       </ul>
       <h4>Piso mínimo</h4>
       <p>Además del cálculo por costo, el sistema aplica un piso mínimo por asiento (ambos valores configurables desde el panel de
