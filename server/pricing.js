@@ -90,9 +90,12 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
 
   let km = await getDistanciaCacheada(origen, destino);
   let peaje = null;
+  let motivoFalloMaps = null; // 21 ago 2026 — ver el fix en server/maps.js distanciaKmEntreCiudades
 
   if (km == null) {
-    km = await maps.distanciaKmEntreCiudades(origen, destino, origenCoords, destinoCoords);
+    const resultado = await maps.distanciaKmEntreCiudades(origen, destino, origenCoords, destinoCoords);
+    km = resultado.km;
+    motivoFalloMaps = resultado.motivo;
     if (km != null) await guardarDistanciaCache(origen, destino, km);
   }
 
@@ -115,10 +118,15 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
   }
 
   if (km == null) {
+    // 21 ago 2026: se agrega el motivo real de Google Maps (si lo hay) al final del mensaje — antes
+    // decía siempre lo mismo ("probá de nuevo en un rato") sin importar la causa real, lo que hacía
+    // imposible diagnosticar un fallo real (ej. una API sin habilitar) sin acceso a los logs del
+    // servidor. Nunca se inventa ni se ajusta ningún km/precio con esto, es solo texto informativo.
     const motivo = process.env.GOOGLE_MAPS_API_KEY
       ? "No pudimos calcular la distancia en este momento — probá de nuevo en un rato."
       : "Esta combinación de ciudades todavía no tiene la integración con Google Maps configurada.";
-    return { error: `No tenemos la distancia entre "${origen}" y "${destino}". ${motivo}` };
+    const detalle = motivoFalloMaps ? ` (Detalle técnico: ${motivoFalloMaps})` : "";
+    return { error: `No tenemos la distancia entre "${origen}" y "${destino}". ${motivo}${detalle}` };
   }
 
   const calculo = await calcularPrecioSugerido(km, peaje, asientosOfrecidos);

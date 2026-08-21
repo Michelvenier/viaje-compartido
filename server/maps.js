@@ -29,9 +29,19 @@
 // ambigüedad posible: es el punto exacto que Google ya nos devolvió al elegir esa ciudad. Si no
 // vienen coordenadas (ej. viajes viejos, o el buscador de ciudades cayó al modo de lista fija sin
 // Google Maps), se sigue usando el nombre como texto, igual que antes.
+// Fix (21 ago 2026): antes esta función devolvía solo `null` en cualquier caso de fallo, sin decir
+// POR QUÉ falló — el usuario reportó "No pudimos calcular la distancia en este momento" para un par
+// de ciudades sin ninguna ambigüedad (Pehuajó / 9 de Julio) y no había forma de saber, sin acceso a
+// los logs de Vercel (esta sesión no tiene acceso al proyecto real en el Vercel MCP conectado), si el
+// motivo real era la Distance Matrix API sin habilitar, la key sin esa API permitida, cuota agotada,
+// o algo puntual de la consulta. Ahora la función devuelve `{ km, motivo }` — `motivo` viaja hasta el
+// mensaje de error que ve el conductor (server/pricing.js), así que la PRÓXIMA vez que esto pase el
+// motivo real de Google queda visible en la pantalla misma, sin necesitar la consola del navegador ni
+// logs del servidor. Nunca cambia el km calculado ni inventa nada — km sigue siendo `null` en
+// cualquier caso de fallo, exactamente igual que antes.
 async function distanciaKmEntreCiudades(ciudadA, ciudadB, coordsA, coordsB) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { km: null, motivo: "GOOGLE_MAPS_API_KEY no está configurada en el servidor." };
 
   const coordsValidas = (c) => c && typeof c.lat === "number" && typeof c.lng === "number";
   const origenTexto = coordsValidas(coordsA) ? `${coordsA.lat},${coordsA.lng}` : `${ciudadA}, Argentina`;
@@ -44,23 +54,29 @@ async function distanciaKmEntreCiudades(ciudadA, ciudadB, coordsA, coordsB) {
     const resp = await fetch(url);
     if (!resp.ok) {
       console.error("Google Maps Distance Matrix respondió", resp.status);
-      return null;
+      return { km: null, motivo: `Google Maps respondió con error HTTP ${resp.status}.` };
     }
     const data = await resp.json();
     if (data.status !== "OK") {
       console.error("Google Maps Distance Matrix status:", data.status, data.error_message || "");
-      return null;
+      return {
+        km: null,
+        motivo: `Google Maps devolvió "${data.status}"${data.error_message ? `: ${data.error_message}` : ""}.`,
+      };
     }
     const elemento = data?.rows?.[0]?.elements?.[0];
     if (!elemento || elemento.status !== "OK" || !elemento.distance) {
       console.error("Google Maps Distance Matrix: no encontró ruta entre", ciudadA, "y", ciudadB, elemento?.status);
-      return null;
+      return {
+        km: null,
+        motivo: `Google Maps no encontró una ruta entre esos dos puntos (estado: "${elemento?.status || "sin respuesta"}").`,
+      };
     }
     const metros = elemento.distance.value;
-    return Math.round((metros / 1000) * 10) / 10; // km con 1 decimal
+    return { km: Math.round((metros / 1000) * 10) / 10, motivo: null }; // km con 1 decimal
   } catch (err) {
     console.error("Error consultando Google Maps Distance Matrix:", err.message);
-    return null;
+    return { km: null, motivo: `Error de red consultando Google Maps: ${err.message}` };
   }
 }
 
