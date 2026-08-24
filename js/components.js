@@ -179,7 +179,7 @@ function renderTripCard(viaje) {
         <div class="trip-driver">
           ${avatarHtml(c.foto_perfil, c.nombre, c.apellido)}
           <div>
-            <strong>${escapeHtml(c.nombre || "")}</strong>
+            <strong>${escapeHtml(c.nombre || "")}</strong>${c.genero ? ` <span class="muted">· ${escapeHtml(generoLabel(c.genero))}</span>` : ""}
             ${c.rating_count ? `<span class="stars">★ ${c.rating_promedio}</span> <span class="muted">(${c.rating_count})</span>` : '<span class="muted">Sin calificaciones aún</span>'}
           </div>
         </div>
@@ -595,20 +595,29 @@ function wireCiudadesRutaChecklist(root, ciudades, onChange) {
   });
 }
 
-// Selector de "qué camino real vas a hacer" cuando Google Directions encontró más de una ruta
-// distinta entre origen y destino — a pedido del usuario (21 ago 2026: "que lo elija el chofer",
-// ej. Pehuajó → La Plata por Chivilcoy/Luján/Moreno O por Bolívar/Saladillo/Lobos/Roque Pérez).
-// `rutas` es el array { resumen, distanciaKm, ciudades } que devuelve GET /api/lugares/ruta (ver
-// server/maps.js ciudadesEnRuta); `idxSeleccionada` es el índice tildado por defecto. El precio del
-// viaje NUNCA depende de cuál se elija acá (eso sigue siendo Distance Matrix API aparte) — esto
-// solo decide qué localidades intermedias se ofrecen para tildar/destildar.
-function rutaSelectorHtml(rutas, idxSeleccionada) {
+// Selector de "qué caminos reales podrías llegar a hacer" cuando Google Directions encontró más de
+// una ruta distinta entre origen y destino — a pedido del usuario (21 ago 2026: "que lo elija el
+// chofer", ej. Pehuajó → La Plata por Chivilcoy/Luján/Moreno O por Bolívar/Saladillo/Lobos/Roque
+// Pérez). Hasta el 24 ago 2026 esto era de UNA sola opción (radio) — el usuario pidió poder tildar
+// MÁS DE UNA ruta a la vez: "por si hago un desvio entre una ciudad y la otra... que me permita
+// tildar ambas rutas y seleccionar las ciudades que quiero, por si me desvio, asi en cada viaje" —
+// en un viaje real el conductor puede terminar mezclando tramos de más de un camino (ej. salir por
+// Bolívar pero volver a la ruta principal por Chivilcoy), así que ahora son checkboxes: se puede
+// tildar un solo camino, todos, o cualquier combinación — el checklist de ciudades de más abajo
+// junta (sin repetir) las localidades de TODOS los caminos tildados. Arrancan todos tildados por
+// default. `rutas` es el array { resumen, distanciaKm, ciudades } que devuelve GET /api/lugares/ruta
+// (ver server/maps.js ciudadesEnRuta); `idxsSeleccionadas` es el array de índices tildados por
+// defecto. El precio del viaje NUNCA depende de qué se tilde acá (eso sigue siendo Distance Matrix
+// API aparte, sobre origen/destino) — esto solo decide qué localidades intermedias se ofrecen para
+// tildar/destildar en el checklist de ciudades.
+function rutaSelectorHtml(rutas, idxsSeleccionadas) {
   return `<div class="ruta-selector" style="margin:6px 0">
-    <small class="hint">Google encontró más de un camino real entre estas dos ciudades — elegí el que realmente vas a hacer:</small>
+    <small class="hint">Google encontró más de un camino real entre estas dos ciudades — tildá los que podrías llegar a hacer (podés
+    tildar más de uno si a veces te desviás entre uno y otro):</small>
     ${rutas
       .map(
         (r, i) => `<label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;cursor:pointer">
-          <input type="radio" name="ruta-elegida" class="ruta-elegida-radio" value="${i}" ${i === idxSeleccionada ? "checked" : ""}>
+          <input type="checkbox" class="ruta-elegida-check" value="${i}" ${idxsSeleccionadas.includes(i) ? "checked" : ""}>
           <span>${escapeHtml(r.resumen)}${typeof r.distanciaKm === "number" ? ` <span class="muted">· ${r.distanciaKm} km</span>` : ""}</span>
         </label>`
       )
@@ -616,12 +625,21 @@ function rutaSelectorHtml(rutas, idxSeleccionada) {
   </div>`;
 }
 
-// Ata los radios de rutaSelectorHtml() dentro de `root` — llama a `onChange(idx)` con el índice de
-// `rutas` recién elegido cada vez que el conductor cambia de opción.
+// Ata los checkboxes de rutaSelectorHtml() dentro de `root` — llama a `onChange(idxs)` con el array
+// de índices de `rutas` que quedaron tildados cada vez que el conductor cambia algo. A propósito NO
+// deja destildar el último que queda tildado (tiene que haber SIEMPRE al menos un camino elegido,
+// si no el checklist de ciudades no tendría de dónde salir) — si el conductor intenta destildar el
+// único que queda tildado, se vuelve a tildar solo y no se llama a onChange.
 function wireRutaSelector(root, onChange) {
-  root.querySelectorAll(".ruta-elegida-radio").forEach((radio) => {
-    radio.addEventListener("change", () => {
-      if (radio.checked) onChange(Number(radio.value));
+  const checks = () => [...root.querySelectorAll(".ruta-elegida-check")];
+  checks().forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const tildados = checks().filter((c) => c.checked);
+      if (tildados.length === 0) {
+        chk.checked = true; // no se permite dejar cero rutas tildadas
+        return;
+      }
+      onChange(tildados.map((c) => Number(c.value)));
     });
   });
 }

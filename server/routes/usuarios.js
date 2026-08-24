@@ -78,13 +78,13 @@ function registrar(rol) {
     const id = newId("usr");
     await db.run(
       `INSERT INTO usuarios (
-        id, rol, nombre, apellido, edad, dni, telefono, email, domicilio, foto_perfil, bio,
+        id, rol, nombre, apellido, edad, dni, telefono, email, domicilio, foto_perfil, bio, genero,
         pref_fuma, pref_mascotas, pref_musica, pref_charla, pref_equipaje, estado_validacion,
         doc_dni_frente, doc_dni_dorso, doc_selfie, doc_licencia, doc_cedula, doc_seguro, doc_vtv_declarada,
         doc_vtv, vtv_vencimiento,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
         alias_cobro, password, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -97,6 +97,9 @@ function registrar(rol) {
         body.domicilio || null,
         body.foto_perfil || null,
         body.bio || null,
+        // Género: OPCIONAL (24 ago 2026, a pedido del usuario) — si no lo completa, queda null y
+        // simplemente no se muestra en ningún lado (ver comentario en server/db.js).
+        body.genero || null,
         body.pref_fuma ? 1 : 0,
         body.pref_mascotas ? 1 : 0,
         body.pref_musica || "indistinto",
@@ -151,6 +154,9 @@ async function actualizar(req, res, params) {
   const campos = [
     "bio",
     "foto_perfil",
+    // Género (24 ago 2026): opcional, editable en cualquier momento desde "Mi perfil" — se puede
+    // completar, cambiar, o volver a dejar vacío mandando "" (ver render en js/views.js).
+    "genero",
     "pref_fuma",
     "pref_mascotas",
     "pref_musica",

@@ -227,6 +227,15 @@ async function initSchema() {
     -- destino, por ejemplo — donde falte, la app cae al comportamiento de siempre (solo el nombre
     -- de la ciudad / origen_direccion en texto libre). Default '{}' para viajes viejos.
     ALTER TABLE viajes ADD COLUMN IF NOT EXISTS puntos_encuentro TEXT DEFAULT '{}';
+    -- Género (24 ago 2026, a pedido del usuario: "capaz no quiere viajar con un tipo desconocido,
+    -- por eso me gustaria que los pasajeros vean... para que confirmen seguros"). Campo OPCIONAL —
+    -- nadie está obligado a completarlo, ni al registrarse ni después; queda NULL para cualquier
+    -- cuenta que no lo cargue, y ahí simplemente no se muestra ese dato en ningún lado (mismo
+    -- criterio que foto_perfil cuando no está cargada). Texto libre corto en vez de un enum fijo en
+    -- la base, para no tener que migrar el esquema si en el futuro se agregan más opciones — el
+    -- select del frontend (js/views.js) sí ofrece opciones fijas ("Mujer" / "Varón" / "Prefiero no
+    -- decirlo") para mantenerlo simple y evitar texto libre arbitrario ahí.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS genero TEXT;
 
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,

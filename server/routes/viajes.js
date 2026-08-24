@@ -71,16 +71,38 @@ function filaViaje(row) {
 // el 20 ago 2026 — a pedido del usuario, tanto el pasajero eligiendo viaje como el conductor
 // aceptando una solicitud tienen que poder ver la foto y la valoración de la otra persona antes
 // de confirmar (ver renderSolicitudRow en js/views.js para el lado del conductor, que ya
-// mostraba foto+rating del pasajero desde antes).
+// mostraba foto+rating del pasajero desde antes). Desde el 24 ago 2026 también trae `genero`
+// (opcional, ver server/db.js) — mismo motivo de seguridad que llevó a agregar la sección de
+// "pasajeros confirmados" más abajo: que quien elige un viaje pueda decidir con más información.
 async function conConductor(row) {
   const viaje = filaViaje(row);
   const conductor = await db.get(
-    `SELECT id, nombre, apellido, foto_perfil, rating_promedio, rating_count, estado_validacion
+    `SELECT id, nombre, apellido, foto_perfil, genero, rating_promedio, rating_count, estado_validacion
      FROM usuarios WHERE id = ?`,
     [viaje.conductor_id]
   );
   viaje.conductor = conductor;
   return viaje;
+}
+
+// Pasajeros YA CONFIRMADOS (reserva en estado "aceptada" o "completada") de un viaje — a pedido
+// explícito del usuario (24 ago 2026: "capaz no quiere viajar con un tipo desconocido... me
+// gustaria que los pasajeros vean asientos disponibles, cara de los que viajan en el auto y demas
+// informacion para que confirmen seguros"). A propósito NO incluye reservas "pendiente" — todavía
+// podrían no confirmarse, y mostrarlas como si ya viajaran sería engañoso — ni "rechazada"/
+// "cancelada". Se muestra en la pantalla de detalle del viaje, ANTES de reservar (mismo criterio
+// de "cuanto antes mejor" que ya se usa para la foto/rating del conductor, ver conConductor
+// arriba) — el pasajero que está por elegir el viaje tiene que poder ver con quién más va a
+// compartir el auto antes de comprometerse, no recién después.
+async function pasajerosConfirmadosDelViaje(viajeId) {
+  return db.all(
+    `SELECT r.asientos_reservados, r.tramo_origen_ciudad, r.tramo_destino_ciudad,
+            u.nombre, u.apellido, u.foto_perfil, u.genero, u.rating_promedio, u.rating_count
+     FROM reservas r JOIN usuarios u ON u.id = r.pasajero_id
+     WHERE r.viaje_id = ? AND r.estado IN ('aceptada','completada')
+     ORDER BY r.created_at ASC`,
+    [viajeId]
+  );
 }
 
 async function publicar(req, res) {
@@ -320,6 +342,10 @@ async function detalle(req, res, params) {
     libres: libresPorTramo[i],
   }));
   row.asientos_disponibles = libresPorTramo.length ? Math.max(...libresPorTramo) : row.asientos_totales;
+
+  // Pasajeros ya confirmados (ver pasajerosConfirmadosDelViaje arriba) — para que quien está
+  // eligiendo el viaje pueda ver con quién más va a compartir el auto antes de reservar.
+  row.pasajeros_confirmados = await pasajerosConfirmadosDelViaje(row.id);
 
   ok(res, await conConductor(row));
 }

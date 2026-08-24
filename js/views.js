@@ -243,10 +243,14 @@ async function viewDetalle(app, params) {
         <div style="display:flex;align-items:center;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
           ${avatarHtml(c.foto_perfil, c.nombre, c.apellido, "lg")}
           <div>
-            <strong>${escapeHtml(c.nombre || "")} ${escapeHtml((c.apellido || "")[0] || "")}.</strong>
+            <strong>${escapeHtml(c.nombre || "")} ${escapeHtml((c.apellido || "")[0] || "")}.</strong>${c.genero ? ` <span class="muted">· ${escapeHtml(generoLabel(c.genero))}</span>` : ""}
             <div class="muted">${c.rating_count ? `★ ${c.rating_promedio} (${c.rating_count} viajes)` : "Todavía sin calificaciones"}</div>
             <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto y el teléfono del conductor una vez que acepte tu reserva.</div>
           </div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div class="muted" style="margin-bottom:8px">💺 <strong>${viaje.asientos_disponibles}</strong> de ${viaje.asientos_totales} asientos libres</div>
+          ${pasajerosConfirmadosHtml(viaje.pasajeros_confirmados || [])}
         </div>
       </div>
 
@@ -875,7 +879,10 @@ function viewPublicar(app) {
     const rutas = resp.rutas && resp.rutas.length
       ? resp.rutas.map((r) => ({ ...r, ciudades: r.ciudades || [] }))
       : [{ resumen: "", distanciaKm: null, ciudades: [] }];
-    let idxElegida = 0;
+    // Por defecto se tildan TODOS los caminos detectados (24 ago 2026, ver el comentario largo de
+    // rutaSelectorHtml en js/components.js) — el conductor puede destildar los que sabe que no va a
+    // hacer, pero arranca viendo el checklist combinado de todos por si se desvía entre uno y otro.
+    let idxsElegidas = rutas.map((_, i) => i);
 
     const pintarChecklist = () => {
       if (miToken !== rutaDetectadaToken || !cont.isConnected) return; // el conductor pudo haber cambiado de ciudad mientras tanto
@@ -891,12 +898,27 @@ function viewPublicar(app) {
     };
 
     const pintarChecklistInterno = () => {
-      const ruta = rutas[idxElegida];
+      // Ciudades combinadas de TODOS los caminos tildados (24 ago 2026, a pedido del usuario: "que
+      // me permita tildar ambas rutas y seleccionar las ciudades que quiero, por si me desvio, asi
+      // en cada viaje") — antes esto era una sola ruta elegida a la vez; ahora se junta (sin
+      // repetir, por nombre) la lista de localidades de cada camino tildado, en el orden en que
+      // aparecen los caminos tildados y, dentro de cada uno, en su propio orden real. Si el
+      // conductor termina desviándose entre un camino y otro en el viaje real, las localidades de
+      // los dos ya están disponibles para tildar, en vez de tener que elegir una sola por adelantado.
+      const ciudadesMerge = [];
+      const nombresVistos = new Set();
+      for (const idx of idxsElegidas) {
+        for (const c of rutas[idx].ciudades) {
+          if (nombresVistos.has(c.nombre)) continue;
+          nombresVistos.add(c.nombre);
+          ciudadesMerge.push(c);
+        }
+      }
 
       intermediasCiudades.length = 0;
-      intermediasCiudades.push(...ruta.ciudades.map((c) => c.nombre));
+      intermediasCiudades.push(...ciudadesMerge.map((c) => c.nombre));
       ciudadesIntermediasElegidas = () => intermediasCiudades.slice();
-      ruta.ciudades.forEach((c) => {
+      ciudadesMerge.forEach((c) => {
         coordsPorCiudad[c.nombre] = { lat: c.lat, lng: c.lng }; // se guarda igual (real, de Directions/Geocoding) aunque ya no se muestre en ningún mapa — puede servir a futuro
         // Punto de encuentro AUTOMÁTICO para intermedias: el conductor no elige nada acá. A pedido
         // del usuario (21 ago 2026, segunda vuelta: "saquemos el mapa de ciudades intermedias...
@@ -916,22 +938,22 @@ function viewPublicar(app) {
 
       cont.innerHTML = `<label>Ciudades intermedias</label>
         <small class="hint">Detectamos estas localidades en el camino real entre ${escapeHtml(origenCiudad)} y ${escapeHtml(destinoCiudad)} — destildá las que no quieras que aparezcan en las búsquedas de otros pasajeros. No hace falta agregar ninguna a mano.</small>
-        ${rutas.length > 1 ? rutaSelectorHtml(rutas, idxElegida) : ""}
+        ${rutas.length > 1 ? rutaSelectorHtml(rutas, idxsElegidas) : ""}
         <div id="ciudades-ruta-checklist" style="margin-top:6px"></div>`;
 
       if (rutas.length > 1) {
-        // Cambiar de ruta reinicia el checklist de intermedias de cero para la ruta nueva — mismo
-        // criterio que cuando cambia origen/destino (ver nota de diseño más arriba): es más simple
-        // y consistente que tratar de "adivinar" qué mantener entre dos caminos reales distintos.
-        wireRutaSelector(cont, (nuevoIdx) => {
-          idxElegida = nuevoIdx;
+        // Cambiar qué caminos están tildados reinicia el checklist de ciudades de cero para la
+        // combinación nueva — mismo criterio que cuando cambia origen/destino (ver nota de diseño
+        // más arriba): es más simple y consistente que tratar de "adivinar" qué mantener.
+        wireRutaSelector(cont, (nuevosIdxs) => {
+          idxsElegidas = nuevosIdxs;
           pintarChecklist();
         });
       }
 
       const checklistCont = cont.querySelector("#ciudades-ruta-checklist");
-      checklistCont.innerHTML = ciudadesRutaChecklistHtml(ruta.ciudades);
-      wireCiudadesRutaChecklist(checklistCont, ruta.ciudades, (seleccionadas) => {
+      checklistCont.innerHTML = ciudadesRutaChecklistHtml(ciudadesMerge);
+      wireCiudadesRutaChecklist(checklistCont, ciudadesMerge, (seleccionadas) => {
         intermediasCiudades.length = 0;
         intermediasCiudades.push(...seleccionadas.map((c) => c.nombre));
         renderPuntosEncuentroContainer();
@@ -1067,6 +1089,61 @@ function viewPublicar(app) {
   });
 }
 
+// Género (24 ago 2026, a pedido del usuario: "capaz no quiere viajar con un tipo desconocido...
+// me gustaria que los pasajeros vean... para que confirmen seguros") — campo 100% OPCIONAL, tanto
+// al registrarse como después desde "Mi perfil" (ver renderVehiculoEditable/actualizarPerfil más
+// abajo). Se usa un select con opciones fijas (en vez de texto libre) para mantenerlo simple; la
+// opción "Prefiero no decirlo" guarda "" → se envía como null al backend (ver server/db.js) y
+// simplemente no se muestra en ningún lado, igual que una foto de perfil sin cargar.
+function generoFieldHtml(valorActual) {
+  const opciones = [
+    ["", "Prefiero no decirlo"],
+    ["mujer", "Mujer"],
+    ["varón", "Varón"],
+    ["otro", "Otro"],
+  ];
+  return `<div class="field"><label>Género (opcional)</label>
+    <select id="f-genero">
+      ${opciones
+        .map(([v, l]) => `<option value="${escapeHtml(v)}" ${(valorActual || "") === v ? "selected" : ""}>${escapeHtml(l)}</option>`)
+        .join("")}
+    </select>
+    <small class="hint">Si lo completás, se lo mostramos a quien vea el viaje junto con tu foto — mismo criterio de seguridad
+    que la foto de perfil (ver "Reglas de la Ruta"). Podés dejarlo en blanco o cambiarlo cuando quieras desde "Mi perfil".</small>
+  </div>`;
+}
+
+function generoLabel(valor) {
+  return { mujer: "Mujer", varón: "Varón", otro: "Otro género" }[valor] || "";
+}
+
+// Lista de pasajeros YA CONFIRMADOS de un viaje (ver pasajerosConfirmadosDelViaje en
+// server/routes/viajes.js) — se muestra en viewDetalle, ANTES de reservar, para que quien está
+// eligiendo el viaje pueda ver con quién más va a compartir el auto (24 ago 2026, a pedido del
+// usuario: "capaz no quiere viajar con un tipo desconocido... que los pasajeros vean... cara de
+// los que viajan en el auto... para que confirmen seguros"). Solo incluye reservas aceptadas o
+// completadas — nunca pendientes (todavía podrían no confirmarse).
+function pasajerosConfirmadosHtml(lista) {
+  if (!lista.length) {
+    return `<p class="muted" style="font-size:0.85rem">Todavía nadie más reservó este viaje — si confirmás, serías el/la primero/a.</p>`;
+  }
+  const filas = lista
+    .map((p) => {
+      const tramo = p.tramo_origen_ciudad && p.tramo_destino_ciudad ? ` · ${escapeHtml(p.tramo_origen_ciudad)} → ${escapeHtml(p.tramo_destino_ciudad)}` : "";
+      return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        ${avatarHtml(p.foto_perfil, p.nombre, p.apellido)}
+        <div>
+          <span>${escapeHtml(p.nombre || "")} ${escapeHtml((p.apellido || "")[0] || "")}.</span>
+          ${p.genero ? `<span class="muted"> · ${escapeHtml(generoLabel(p.genero))}</span>` : ""}
+          <span class="muted">${p.rating_count ? ` · ★ ${p.rating_promedio}` : ""}</span>
+          <div class="muted" style="font-size:0.8rem">${p.asientos_reservados} asiento(s)${tramo}</div>
+        </div>
+      </div>`;
+    })
+    .join("");
+  return `<p class="muted" style="font-size:0.85rem;margin-bottom:2px">Ya confirmaron este viaje:</p>${filas}`;
+}
+
 // ---------------------------------------------------------------------------
 // REGISTRO — wizard de 3 pasos para Conductor y Pasajero
 // ---------------------------------------------------------------------------
@@ -1105,6 +1182,7 @@ function viewRegistro(app, params) {
             <div class="field"><label>Edad</label><input type="number" id="f-edad" min="18" max="99" value="${data.edad || ""}"></div>
             <div class="field"><label>DNI</label><input type="text" id="f-dni" placeholder="Sin puntos" value="${escapeHtml(data.dni || "")}"></div>
           </div>
+          ${generoFieldHtml(data.genero)}
           ${renderUploadField("foto_perfil", "Foto de perfil", "Subí una foto donde se te vea la cara (¡sonreí, da más confianza!).")}
           <div class="field"><label>Sobre vos</label>
             <textarea id="f-bio" placeholder="¿Mate amargo o dulce? ¿Hablamos de bueyes perdidos o preferís silencio?">${escapeHtml(data.bio || "")}</textarea>
@@ -1191,6 +1269,7 @@ function viewRegistro(app, params) {
             <div class="field"><label>Edad</label><input type="number" id="f-edad" min="16" max="99" value="${data.edad || ""}"></div>
             <div class="field"><label>DNI</label><input type="text" id="f-dni" placeholder="Sin puntos" value="${escapeHtml(data.dni || "")}"></div>
           </div>
+          ${generoFieldHtml(data.genero)}
           ${renderUploadField("foto_perfil", "Foto de perfil", "Una foto donde se te vea bien la cara (ayuda a que el conductor te reconozca en el punto de encuentro).")}
           ${renderUploadField("doc_dni_frente", "DNI (frente)", "Es parte de la verificación de identidad que hacemos con cada usuario.")}
           ${renderUploadField("doc_dni_dorso", "DNI (dorso)")}
@@ -1284,6 +1363,7 @@ function viewRegistro(app, params) {
       if (step === 1) {
         Object.assign(data, {
           nombre: q("#f-nombre")?.value, apellido: q("#f-apellido")?.value, edad: q("#f-edad")?.value, dni: q("#f-dni")?.value,
+          genero: q("#f-genero")?.value,
           foto_perfil: getUpload("foto_perfil") || data.foto_perfil, bio: q("#f-bio")?.value,
           telefono: q("#f-telefono")?.value, email: q("#f-email")?.value, domicilio: q("#f-domicilio")?.value,
           password: q("#f-password")?.value, password2: q("#f-password2")?.value,
@@ -1316,6 +1396,7 @@ function viewRegistro(app, params) {
       if (step === 1) {
         Object.assign(data, {
           nombre: q("#f-nombre")?.value, apellido: q("#f-apellido")?.value, edad: q("#f-edad")?.value, dni: q("#f-dni")?.value,
+          genero: q("#f-genero")?.value,
           foto_perfil: getUpload("foto_perfil") || data.foto_perfil,
           doc_dni_frente: getUpload("doc_dni_frente") || data.doc_dni_frente,
           doc_dni_dorso: getUpload("doc_dni_dorso") || data.doc_dni_dorso,
@@ -2441,6 +2522,10 @@ async function viewPerfil(app) {
         </div>
         ${fresco.estado_validacion === "rechazado" && fresco.motivo_rechazo ? `<div class="error-box" style="margin-top:14px">Motivo: ${escapeHtml(fresco.motivo_rechazo)}</div>` : ""}
         <p style="margin-top:14px"><strong>Email:</strong> ${escapeHtml(fresco.email)}<br><strong>Celular:</strong> ${escapeHtml(fresco.telefono || "-")}</p>
+        <div style="margin-top:10px">
+          ${generoFieldHtml(fresco.genero)}
+          <button class="btn btn-outline" id="btn-guardar-genero">Guardar</button>
+        </div>
         ${fresco.rol === "conductor" ? renderVehiculoEditable(fresco) : ""}
         ${
           fresco.rol === "pasajero"
@@ -2501,6 +2586,17 @@ async function viewPerfil(app) {
       }
     });
   }
+  app.querySelector("#btn-guardar-genero").addEventListener("click", async () => {
+    try {
+      const genero = app.querySelector("#f-genero").value;
+      const actualizado = await Api.patch(`/api/usuarios/${fresco.id}`, { genero });
+      if (fresco.adminToken) actualizado.adminToken = fresco.adminToken;
+      Session.set(actualizado);
+      toast(genero ? "Género actualizado" : "Género borrado — ya no se muestra en tus viajes", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
   const btnAlias = app.querySelector("#btn-guardar-alias");
   if (btnAlias) {
     btnAlias.addEventListener("click", async () => {
