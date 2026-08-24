@@ -143,6 +143,9 @@ async function actualizarConfig(req, res) {
     "tolerancia_ajuste_pct",
     "precio_minimo_por_km",
     "precio_minimo_base",
+    // Agregado el 24 ago 2026 junto con el campo nuevo en el panel admin — antes solo se podía
+    // cambiar editando el código y desplegando de nuevo.
+    "peaje_por_km_estimado",
     "penalizacion_cancelacion_menos24hs",
     "penalizacion_cancelacion_mas24hs",
     "tope_saldo_deudor",

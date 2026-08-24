@@ -290,9 +290,19 @@ async function initSchema() {
     ["tope_saldo_deudor", "20000"],
     // Peaje ESTIMADO por km para pares de ciudades que no son "La Plata ↔ X" (esos usan el peaje
     // curado a mano de distancias_corredor) — Google Maps no informa costo de peajes, así que se
-    // estima como km × este valor. Sacado del promedio aproximado de la tabla curada de arriba
-    // (ronda entre $8 y $12 por km según la ruta). Editable desde el panel de admin.
-    ["peaje_por_km_estimado", "9"],
+    // estima como km × este valor. Corregido el 24 ago 2026 (a pedido explícito del usuario: "sacalo
+    // de ruta 0... estan mucho mas baratos de lo que realmente valen") — antes eran $9/km, sacados
+    // del promedio de la vieja tabla curada (que también estaba desactualizada). El nuevo valor sale
+    // del promedio ponderado por km de 13 rutas reales desde La Plata verificadas contra
+    // www.ruta0.com/ruta/argentina/ el 24 ago 2026 (de $248.442 en peajes reales sobre 4.258 km
+    // reales ≈ $58/km) — sigue siendo una ESTIMACIÓN de referencia, no un cálculo real por ruta:
+    // los peajes de verdad son un monto fijo por cabina, no proporcional al km, así que este valor
+    // puede quedar corto en trayectos cortos con una cabina cara cerca (ej. La Plata-Chascomús, 77
+    // km con una cabina de $7.900, da ~$103/km real) o largo en rutas sin ninguna cabina (ej. Rauch,
+    // $0 real). La tabla curada de arriba (distancias_corredor) sí tiene el monto real por ciudad
+    // para el corredor conocido — esto es solo el respaldo genérico para cualquier otro par de
+    // ciudades. Editable desde el panel de admin (Valores de referencia).
+    ["peaje_por_km_estimado", "58"],
     // Cancelaciones consecutivas de un conductor (viajes publicados que canceló uno atrás del otro,
     // sin ninguno completado/activo en el medio): a partir de este número se le muestra una alerta
     // al admin en el panel; al llegar al de suspensión, se lo suspende automáticamente (no puede
@@ -310,6 +320,72 @@ async function initSchema() {
   ];
   for (const [clave, valor] of defaults) {
     await run(`INSERT INTO config (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO NOTHING`, [clave, valor]);
+  }
+
+  await migrarPeajesReales24Ago2026();
+}
+
+// Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
+// actualizado... estan mucho mas baratos de lo que realmente valen". Los `defaults` de arriba solo
+// sirven para una base NUEVA (por el ON CONFLICT DO NOTHING) — en la base que ya está en producción,
+// "distancias_corredor" y "peaje_por_km_estimado" quedaron guardados con los valores viejos y nunca
+// se actualizan solos aunque se cambie el código. Esta función los corrige en cualquier base que
+// todavía tenga EXACTAMENTE el valor viejo (comparación 1 a 1) — si el admin ya lo cambió a mano
+// desde el panel, ese valor se respeta y no se toca. Corre en cada arranque en frío; después de la
+// primera vez que corre en una base ya no tiene efecto, porque los valores dejan de coincidir con los
+// viejos. Fuente de los valores nuevos: www.ruta0.com/ruta/argentina/ (calculadora de ruta real, con
+// el detalle de cada cabina de peaje), consultada el 24 ago 2026 — ver
+// claude/ruta-compartida-status.md (proyecto de Claude) para el detalle ruta por ruta.
+const PEAJES_VIEJOS_24AGO2026 = {
+  "Chascomús": 800,
+  "Rauch": 1600,
+  "Tandil": 2400,
+  "Balcarce": 2800,
+  "Necochea": 3200,
+  "Luján": 1800,
+  "Chivilcoy": 2600,
+  "Bragado": 3000,
+  "Carlos Casares": 3600,
+  "Pehuajó": 3800,
+  "Trenque Lauquen": 4200,
+  "Santa Rosa": 5500,
+  "Saladillo": 1900,
+};
+const PEAJES_NUEVOS_24AGO2026 = {
+  "Chascomús": 7900,
+  "Rauch": 0,
+  "Tandil": 15800,
+  "Balcarce": 15800,
+  "Necochea": 15800,
+  "Luján": 24806,
+  "Chivilcoy": 26306,
+  "Bragado": 26306,
+  "Carlos Casares": 27806,
+  "Pehuajó": 27806,
+  "Trenque Lauquen": 29306,
+  "Santa Rosa": 29306,
+  "Saladillo": 1500,
+};
+async function migrarPeajesReales24Ago2026() {
+  const filaDistancias = await get("SELECT valor FROM config WHERE clave = 'distancias_corredor'");
+  if (filaDistancias) {
+    const distancias = JSON.parse(filaDistancias.valor);
+    let cambio = false;
+    for (const [ciudad, peajeNuevo] of Object.entries(PEAJES_NUEVOS_24AGO2026)) {
+      const actual = distancias[ciudad];
+      if (actual && actual.peaje === PEAJES_VIEJOS_24AGO2026[ciudad]) {
+        distancias[ciudad] = { ...actual, peaje: peajeNuevo };
+        cambio = true;
+      }
+    }
+    if (cambio) {
+      await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);
+    }
+  }
+
+  const filaPeajeKm = await get("SELECT valor FROM config WHERE clave = 'peaje_por_km_estimado'");
+  if (filaPeajeKm && filaPeajeKm.valor === "9") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'peaje_por_km_estimado'", ["58"]);
   }
 }
 

@@ -2292,6 +2292,7 @@ async function viewAdmin(app) {
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
           <div class="field"><label>Piso mínimo por asiento ($/km)</label><input type="number" name="precio_minimo_por_km" value="${config.precio_minimo_por_km}"></div>
           <div class="field"><label>Piso mínimo base ($, trayectos cortos)</label><input type="number" name="precio_minimo_base" value="${config.precio_minimo_base}"></div>
+          <div class="field"><label>Peaje estimado por km, fuera del corredor de La Plata ($/km)</label><input type="number" name="peaje_por_km_estimado" value="${config.peaje_por_km_estimado}"></div>
           <div class="field"><label>Penalización cancelación (menos de 24 hs, $)</label><input type="number" name="penalizacion_cancelacion_menos24hs" value="${config.penalizacion_cancelacion_menos24hs}"></div>
           <div class="field"><label>Penalización cancelación (24 hs o más, $)</label><input type="number" name="penalizacion_cancelacion_mas24hs" value="${config.penalizacion_cancelacion_mas24hs}"></div>
           <div class="field"><label>Tope de deuda para bloquear publicar ($)</label><input type="number" name="tope_saldo_deudor" value="${config.tope_saldo_deudor}"></div>

@@ -50,25 +50,37 @@ const CIUDADES_CORREDOR = [
 
 // Distancia y peaje ESTIMADOS entre La Plata y cada ciudad del corredor (ida). Editable desde el
 // panel de administración una vez desplegado — esto es solo el valor inicial de referencia.
+//
+// PEAJES corregidos el 24 ago 2026 (a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
+// actualizado... estan mucho mas baratos de lo que realmente valen"). Se verificaron contra
+// www.ruta0.com/ruta/argentina/ (calculadora de ruta real, con el detalle de cada cabina de peaje) —
+// resultó que el peaje NO es proporcional al km recorrido, es un monto FIJO por cabina: por eso Rauch
+// no paga nada (ruta sin peajes), Saladillo paga solo $1.500 (una sola cabina, Uribelarrea), y
+// cualquier ruta hacia el oeste/sudoeste desde La Plata paga entre $16.700 y $29.300 por las cabinas
+// cercanas a la ciudad (Hudson, Quilmes, Parque Avellaneda, Ituzaingó, Luján, Olivera...), casi sin
+// importar cuánto más lejos esté el destino final. Los valores de KM de esta tabla NO se tocaron (solo
+// se pidió corregir peajes) — de todas formas esta tabla es solo el respaldo de emergencia, casi nunca
+// se usa en producción porque el km real sale de Google Maps (ver nota de arriba).
+// No se pudieron verificar todavía (quedan con el valor viejo, a revisar a mano desde el panel admin
+// si alguien nota que están mal): "Mercedes" (el buscador de Ruta0 devolvió una ciudad "Mercedes" de
+// otra provincia, a 779 km — no la de Buenos Aires, mismo tipo de ambigüedad de nombre ya documentado
+// para "San Vicente"/"General Alvear"), "9 de Julio", "Bolívar" y "General Alvear" (sin resultado).
 const DISTANCIAS_DEFAULT = {
-  "Chascomús": { km: 120, peaje: 800 },
-  "Rauch": { km: 190, peaje: 1600 },
-  "Tandil": { km: 200, peaje: 2400 },
-  "Balcarce": { km: 250, peaje: 2800 },
-  "Necochea": { km: 330, peaje: 3200 },
-  "Luján": { km: 190, peaje: 1800 },
+  "Chascomús": { km: 120, peaje: 7900 },
+  "Rauch": { km: 190, peaje: 0 },
+  "Tandil": { km: 200, peaje: 15800 },
+  "Balcarce": { km: 250, peaje: 15800 },
+  "Necochea": { km: 330, peaje: 15800 },
+  "Luján": { km: 190, peaje: 24806 },
   "Mercedes": { km: 230, peaje: 2200 },
-  "Chivilcoy": { km: 270, peaje: 2600 },
-  "Bragado": { km: 310, peaje: 3000 },
+  "Chivilcoy": { km: 270, peaje: 26306 },
+  "Bragado": { km: 310, peaje: 26306 },
   "9 de Julio": { km: 350, peaje: 3400 },
-  "Carlos Casares": { km: 380, peaje: 3600 },
-  "Pehuajó": { km: 420, peaje: 3800 },
-  "Trenque Lauquen": { km: 480, peaje: 4200 },
-  "Santa Rosa": { km: 600, peaje: 5500 },
-  // Estimaciones sacadas de calculadoras de rutas públicas (no de Google Maps — ver nota arriba),
-  // igual de "a revisar desde el panel admin" que el resto de la tabla. Fuentes consultadas:
-  // ruta0.com y distanciasentre.com (10 ago 2026).
-  "Saladillo": { km: 203, peaje: 1900 },
+  "Carlos Casares": { km: 380, peaje: 27806 },
+  "Pehuajó": { km: 420, peaje: 27806 },
+  "Trenque Lauquen": { km: 480, peaje: 29306 },
+  "Santa Rosa": { km: 600, peaje: 29306 },
+  "Saladillo": { km: 203, peaje: 1500 },
   "Bolívar": { km: 416, peaje: 4000 },
   "General Alvear": { km: 258, peaje: 2500 },
 };
