@@ -71,9 +71,23 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
 //   4. Si no hay nada cacheado, Google Maps no está configurado (o falla) y no hay tabla curada
 //      para ese par (o el par no toca La Plata), se devuelve un error claro en vez de inventar un
 //      km.
-// El peaje SIEMPRE se estima como km × "peaje_por_km_estimado" (config) cuando el km viene de cache
-// o de Google Maps, porque ninguna de las dos fuentes informa costo real de peajes — solo cuando se
-// cae al respaldo de la tabla curada se usa el peaje que también viene cargado ahí a mano.
+// El peaje se calcula así (corregido el 25 ago 2026 — ver más abajo, a pedido explícito del usuario:
+// "No me estás sacando bien los peajes, de pehuajo a la plata si, pero ponele alvear no, en un viaje
+// corto, sacalos de ruta 0"):
+//   1. Si el par toca La Plata y la otra ciudad está en la tabla curada (distancias_corredor), se usa
+//      el peaje REAL de esa tabla — verificado a mano contra www.ruta0.com/ruta/argentina/ para la
+//      mayoría de las ciudades del corredor (ver claude/ruta-compartida-status.md, proyecto de
+//      Claude). Esto pasa SIEMPRE que el par toca La Plata, no solo cuando Google Maps falla — antes
+//      (hasta el 24 ago 2026) la tabla curada solo se usaba como respaldo de emergencia, y todo par
+//      que tocaba La Plata terminaba usando la estimación plana por km de abajo aunque hubiera un
+//      peaje real conocido, lo cual daba resultados muy alejados de la realidad en trayectos cortos
+//      con un peaje real chico (ej. La Plata-General Alvear: 258 km × $58/km estimaba ~$14.960, pero
+//      el peaje real es una sola cabina de $1.500 — los peajes son un monto fijo por cabina, no
+//      proporcional al km, ver la sección de arriba).
+//   2. Si no (el par no toca La Plata, o toca La Plata pero la otra ciudad no está en la tabla
+//      curada), se estima como km × "peaje_por_km_estimado" (config) — Google Maps no informa costo
+//      real de peajes para pares fuera del corredor conocido, así que esto sigue siendo una
+//      aproximación de referencia.
 // `origenCoords`/`destinoCoords` (20 ago 2026, opcionales): {lat, lng} del lugar exacto que ya
 // resolvió el Autocomplete de Google Maps al elegir esa ciudad (ver server/maps.js
 // distanciaKmEntreCiudades para el motivo — nombres de ciudad ambiguos como "San Vicente" o
@@ -99,22 +113,27 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
     if (km != null) await guardarDistanciaCache(origen, destino, km);
   }
 
-  if (km != null) {
+  // 25 ago 2026: si el par toca La Plata, se prioriza el peaje REAL de la tabla curada por sobre la
+  // estimación plana por km — ver el comentario grande de arriba. Esto corre SIEMPRE que el par toca
+  // La Plata (haya o no resuelto Google Maps el km), no solo como respaldo de emergencia.
+  const esParLaPlata = origen === CIUDAD_BASE || destino === CIUDAD_BASE;
+  if (esParLaPlata) {
+    const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
+    const distancias = await getDistanciasCorredor();
+    const datos = distancias[otraCiudad];
+    if (datos) {
+      peaje = datos.peaje;
+      // El km real de Google Maps (si lo hay) sigue teniendo prioridad sobre el km de la tabla
+      // curada — la tabla curada solo aporta el km como último recurso, si Google Maps no pudo
+      // resolverlo. El peaje, en cambio, siempre sale de la tabla curada cuando hay dato (línea de
+      // arriba) porque es más preciso que la estimación por km.
+      if (km == null) km = datos.km;
+    }
+  }
+
+  if (km != null && peaje == null) {
     const peajePorKm = (await getConfig("peaje_por_km_estimado")) || 0;
     peaje = round2(km * peajePorKm);
-  } else {
-    // Respaldo de emergencia: solo para pares que tocan La Plata, y solo si Google Maps no pudo
-    // resolverlo (sin key configurada, cuota agotada, o un error puntual de la API).
-    const esParLaPlata = origen === CIUDAD_BASE || destino === CIUDAD_BASE;
-    if (esParLaPlata) {
-      const otraCiudad = origen === CIUDAD_BASE ? destino : origen;
-      const distancias = await getDistanciasCorredor();
-      const datos = distancias[otraCiudad];
-      if (datos) {
-        km = datos.km;
-        peaje = datos.peaje;
-      }
-    }
   }
 
   if (km == null) {

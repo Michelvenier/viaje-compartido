@@ -61,10 +61,21 @@ const CIUDADES_CORREDOR = [
 // importar cuánto más lejos esté el destino final. Los valores de KM de esta tabla NO se tocaron (solo
 // se pidió corregir peajes) — de todas formas esta tabla es solo el respaldo de emergencia, casi nunca
 // se usa en producción porque el km real sale de Google Maps (ver nota de arriba).
-// No se pudieron verificar todavía (quedan con el valor viejo, a revisar a mano desde el panel admin
-// si alguien nota que están mal): "Mercedes" (el buscador de Ruta0 devolvió una ciudad "Mercedes" de
-// otra provincia, a 779 km — no la de Buenos Aires, mismo tipo de ambigüedad de nombre ya documentado
-// para "San Vicente"/"General Alvear"), "9 de Julio", "Bolívar" y "General Alvear" (sin resultado).
+// SEGUNDA CORRECCIÓN, 25 ago 2026 (a pedido explícito del usuario: "No me estás sacando bien los
+// peajes, de pehuajo a la plata si, pero ponele alvear no, en un viaje corto, sacalos de ruta 0"): se
+// verificaron "Mercedes" (con el sufijo "-ba" en la URL de Ruta0 para desambiguar de la provincia de
+// Corrientes/Entre Ríos — esta vez SÍ dio una ciudad de Buenos Aires real, 145 km, consistente con la
+// ubicación real), "9 de Julio" y "General Alvear" (con el mismo sufijo "-ba"). "Bolívar" TODAVÍA no
+// se pudo verificar (Ruta0 no devolvió resultado ni con variantes de URL) — queda con el valor viejo.
+// IMPORTANTE (25 ago 2026): además de corregir estos tres valores, se cambió CÓMO se usa esta tabla —
+// antes (hasta el 24 ago 2026) el peaje curado de acá solo se usaba como respaldo de emergencia si
+// Google Maps fallaba, así que casi nunca se aplicaba en producción; un trayecto corto con un peaje
+// real chico (como La Plata-General Alvear, una sola cabina de $1.500) terminaba usando la estimación
+// plana por km ($58/km × 258 km ≈ $14.960 — muy por arriba de la realidad). Ahora el peaje de esta
+// tabla se usa SIEMPRE que el par toca La Plata y la ciudad está acá, tenga o no Google Maps el km —
+// ver server/pricing.js calcularPorCiudades() para el detalle.
+// No se pudo verificar todavía (queda con el valor viejo, a revisar a mano desde el panel admin si
+// alguien nota que está mal): "Bolívar".
 const DISTANCIAS_DEFAULT = {
   "Chascomús": { km: 120, peaje: 7900 },
   "Rauch": { km: 190, peaje: 0 },
@@ -72,17 +83,17 @@ const DISTANCIAS_DEFAULT = {
   "Balcarce": { km: 250, peaje: 15800 },
   "Necochea": { km: 330, peaje: 15800 },
   "Luján": { km: 190, peaje: 24806 },
-  "Mercedes": { km: 230, peaje: 2200 },
+  "Mercedes": { km: 230, peaje: 26306 },
   "Chivilcoy": { km: 270, peaje: 26306 },
   "Bragado": { km: 310, peaje: 26306 },
-  "9 de Julio": { km: 350, peaje: 3400 },
+  "9 de Julio": { km: 350, peaje: 27806 },
   "Carlos Casares": { km: 380, peaje: 27806 },
   "Pehuajó": { km: 420, peaje: 27806 },
   "Trenque Lauquen": { km: 480, peaje: 29306 },
   "Santa Rosa": { km: 600, peaje: 29306 },
   "Saladillo": { km: 203, peaje: 1500 },
   "Bolívar": { km: 416, peaje: 4000 },
-  "General Alvear": { km: 258, peaje: 2500 },
+  "General Alvear": { km: 258, peaje: 1500 },
 };
 
 // Valida que origen y destino sean dos ciudades distintas y no vacías.

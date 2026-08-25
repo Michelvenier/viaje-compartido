@@ -323,6 +323,7 @@ async function initSchema() {
   }
 
   await migrarPeajesReales24Ago2026();
+  await migrarPeajesReales25Ago2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -386,6 +387,41 @@ async function migrarPeajesReales24Ago2026() {
   const filaPeajeKm = await get("SELECT valor FROM config WHERE clave = 'peaje_por_km_estimado'");
   if (filaPeajeKm && filaPeajeKm.valor === "9") {
     await run("UPDATE config SET valor = ? WHERE clave = 'peaje_por_km_estimado'", ["58"]);
+  }
+}
+
+// Migración puntual (25 ago 2026) — segunda vuelta, a pedido explícito del usuario: "No me estás
+// sacando bien los peajes, de pehuajo a la plata si, pero ponele alvear no, en un viaje corto, sacalos
+// de ruta 0". Corrige las tres ciudades que el 24 ago 2026 habían quedado sin verificar (esta vez sí
+// se pudo, usando el sufijo "-ba" en la URL de Ruta0 para desambiguar "Mercedes" y "General Alvear" de
+// homónimas en otras provincias). Mismo patrón que la migración de arriba: solo pisa el valor si
+// todavía coincide EXACTO con el viejo, para respetar cualquier edición manual del admin. "Bolívar"
+// sigue sin poder verificarse — no está en esta migración, queda con el valor original hasta que se
+// consiga un dato real.
+const PEAJES_VIEJOS_25AGO2026 = {
+  "Mercedes": 2200,
+  "9 de Julio": 3400,
+  "General Alvear": 2500,
+};
+const PEAJES_NUEVOS_25AGO2026 = {
+  "Mercedes": 26306,
+  "9 de Julio": 27806,
+  "General Alvear": 1500,
+};
+async function migrarPeajesReales25Ago2026() {
+  const filaDistancias = await get("SELECT valor FROM config WHERE clave = 'distancias_corredor'");
+  if (!filaDistancias) return;
+  const distancias = JSON.parse(filaDistancias.valor);
+  let cambio = false;
+  for (const [ciudad, peajeNuevo] of Object.entries(PEAJES_NUEVOS_25AGO2026)) {
+    const actual = distancias[ciudad];
+    if (actual && actual.peaje === PEAJES_VIEJOS_25AGO2026[ciudad]) {
+      distancias[ciudad] = { ...actual, peaje: peajeNuevo };
+      cambio = true;
+    }
+  }
+  if (cambio) {
+    await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);
   }
 }
 
