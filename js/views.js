@@ -2089,6 +2089,14 @@ async function viewAdmin(app) {
           <div class="info-box"><strong>${stats.noShows}</strong><br><span class="muted">inasistencias reportadas (total)</span></div>
           <div class="info-box"><strong>${stats.reembolsosPendientesCount} · ${fmtMoney(stats.reembolsosPendientesMonto)}</strong><br><span class="muted">reembolsos manuales pendientes</span></div>
         </div>
+        <div class="error-box" style="margin-top:16px">
+          <strong>Zona de peligro:</strong> borra TODOS los viajes, reservas, calificaciones y movimientos de cuenta corriente actuales
+          (los datos cargados durante las pruebas) — las estadísticas de arriba vuelven a cero. Las cuentas de usuario NO se borran.
+          Esta acción no se puede deshacer.
+          <div style="margin-top:10px">
+            <button type="button" class="btn btn-outline danger btn-sm" id="btn-resetear-datos-prueba">🗑️ Borrar viajes y estadísticas de prueba</button>
+          </div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:20px">
@@ -2329,6 +2337,34 @@ async function viewAdmin(app) {
       </div>
     </div>`;
 
+  const btnResetearDatosPrueba = app.querySelector("#btn-resetear-datos-prueba");
+  if (btnResetearDatosPrueba) {
+    btnResetearDatosPrueba.addEventListener("click", async () => {
+      if (
+        !confirm(
+          `¿Borrar TODOS los viajes, reservas, calificaciones y movimientos de cuenta corriente? ` +
+            `Las estadísticas vuelven a cero y esto NO se puede deshacer. Las cuentas de usuario no se tocan.`
+        )
+      )
+        return;
+      const confirmacion = prompt('Para confirmar, escribí BORRAR (en mayúsculas) y aceptá:');
+      if (confirmacion !== "BORRAR") {
+        if (confirmacion !== null) toast("No se borró nada — el texto no coincidía con BORRAR.", "info");
+        return;
+      }
+      btnResetearDatosPrueba.disabled = true;
+      btnResetearDatosPrueba.textContent = "Borrando…";
+      try {
+        const resultado = await Api.post("/api/admin/resetear-datos-prueba", {});
+        toast(resultado.mensaje, "success");
+        viewAdmin(app);
+      } catch (err) {
+        toast(err.message, "error");
+        btnResetearDatosPrueba.disabled = false;
+        btnResetearDatosPrueba.textContent = "🗑️ Borrar viajes y estadísticas de prueba";
+      }
+    });
+  }
   app.querySelectorAll("[data-reactivar-chofer]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("¿Reactivar a este conductor? Va a poder volver a publicar viajes.")) return;

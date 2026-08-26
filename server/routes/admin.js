@@ -197,6 +197,34 @@ async function estadisticas(req, res) {
   });
 }
 
+// Reseteo de datos de prueba (26 ago 2026, a pedido explícito del usuario: "quiero que me borres
+// todas las estadisticas, ya que todo era de prueba a hoy, quiero que me borres los viajes de
+// prueba tambien") — pensado para usarse UNA vez, justo antes de lanzar la app de verdad, así el
+// panel arranca en cero en vez de mostrar los viajes/reservas de prueba cargados durante el
+// desarrollo. Borra TODO lo que depende de un viaje (calificaciones -> movimientos_cuenta ->
+// reservas -> viajes, en ese orden por las foreign keys) y también resetea a los usuarios los
+// contadores que dependían de esos viajes de prueba (rating, inasistencias, deuda de cuenta
+// corriente, suspensión por cancelaciones) — si no se resetean esos campos, quedarían pisando con
+// un valor viejo aunque ya no exista ningún viaje/reserva real que los explique.
+// A PROPÓSITO NO borra la tabla "usuarios": las cuentas (conductores/pasajeros/admin ya
+// registrados, con sus documentos y validación) NO son "estadísticas" ni "viajes" — si en algún
+// momento también hace falta vaciarlas, es una acción aparte y todavía más delicada (perdería
+// documentación ya validada), que hay que pedir explícitamente.
+async function resetearDatosPrueba(req, res) {
+  await db.run("DELETE FROM calificaciones");
+  await db.run("DELETE FROM movimientos_cuenta");
+  await db.run("DELETE FROM reservas");
+  const viajesBorrados = await db.run("DELETE FROM viajes");
+  await db.run(
+    `UPDATE usuarios SET rating_promedio = 0, rating_count = 0, no_show_count = 0, saldo_deudor = 0,
+     suspendido = 0, suspendido_motivo = NULL, suspendido_at = NULL`
+  );
+  ok(res, {
+    mensaje: `Listo — se borraron ${viajesBorrados.changes} viaje(s) de prueba junto con sus reservas, calificaciones y movimientos de cuenta corriente. Las estadísticas vuelven a cero. Las cuentas de usuario NO se tocaron.`,
+    viajesBorrados: viajesBorrados.changes,
+  });
+}
+
 // Cola de reembolsos manuales: reservas donde el pasajero no viajó y todavía no se le hizo la
 // devolución de la comisión a mano. Pensado para que el admin tenga toda la información junta
 // (a quién, cuánto, a qué alias) sin tener que ir a buscarla al email o a la base a mano.
@@ -367,6 +395,7 @@ module.exports = {
   verConfig,
   actualizarConfig,
   estadisticas,
+  resetearDatosPrueba,
   reembolsosPendientes,
   marcarReembolsado,
   cuentaCorrientePendientes,

@@ -84,6 +84,7 @@ router.patch("/api/admin/choferes/:id/reactivar", adminOnly(admin.reactivarChofe
 router.get("/api/admin/config", adminOnly(admin.verConfig));
 router.patch("/api/admin/config", adminOnly(admin.actualizarConfig));
 router.get("/api/admin/estadisticas", adminOnly(admin.estadisticas));
+router.post("/api/admin/resetear-datos-prueba", adminOnly(admin.resetearDatosPrueba));
 router.get("/api/admin/reembolsos-pendientes", adminOnly(admin.reembolsosPendientes));
 router.patch("/api/admin/reembolsos/:id/marcar-reembolsado", adminOnly(admin.marcarReembolsado));
 router.get("/api/admin/cuenta-corriente-pendientes", adminOnly(admin.cuentaCorrientePendientes));

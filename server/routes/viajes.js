@@ -5,7 +5,7 @@ const db = require("../db");
 const pricing = require("../pricing");
 const choferes = require("../choferes");
 const corredor = require("../corredor");
-const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
+const { newId, nowIso, fechaHoraArgentinaAhora, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
 // Valida la forma básica de un {lat, lng} que venga del cliente (ver server/maps.js
 // distanciaKmEntreCiudades) — nunca se confía en el shape sin chequear, para no mandarle basura a
@@ -252,6 +252,15 @@ async function buscar(req, res, params, query) {
   // más abajo, después de traer los candidatos.
   let sql = `SELECT * FROM viajes WHERE estado = 'activo'`;
   const args = [];
+  // A pedido del usuario (26 ago 2026: "que si solo busco un viaje, me aparezcan los futuros
+  // viajes, no los que ya pasaron, esto como pasajero") — nunca se muestra en la búsqueda un viaje
+  // cuya fecha+hora de salida ya pasó, sin importar qué otros filtros (origen/destino/fecha) se
+  // hayan pedido. Se compara fecha Y hora (no solo la fecha) para que un viaje de hoy a la mañana
+  // deje de verse a la tarde del mismo día. No afecta a porConductor() más abajo, que sigue
+  // mostrándole al conductor TODO su historial, pasado incluido.
+  const { fecha: hoyArg, hora: ahoraArg } = fechaHoraArgentinaAhora();
+  sql += ` AND (fecha_salida > ? OR (fecha_salida = ? AND hora_salida >= ?))`;
+  args.push(hoyArg, hoyArg, ahoraArg);
   if (query.origen) {
     sql += ` AND (origen_ciudad ILIKE ? OR ciudades_intermedias ILIKE ?)`;
     args.push(`%${query.origen}%`, `%${query.origen}%`);

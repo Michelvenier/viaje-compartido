@@ -11,6 +11,22 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// Fecha y hora ACTUALES en horario de Argentina (UTC-3, sin horario de verano) — el servidor
+// (funciones de Vercel) corre en UTC, así que no alcanza con `new Date()` directo: por ejemplo a
+// las 22:00 en Argentina ya son las 01:00 UTC del día siguiente, y un simple
+// `new Date().toISOString().slice(0,10)` daría la fecha de mañana. Se usa para no mostrarle al
+// pasajero, al buscar un viaje, ninguno cuya fecha+hora de salida ya haya pasado (26 ago 2026, a
+// pedido del usuario: "que si solo busco un viaje, me aparezcan los futuros viajes, no los que ya
+// pasaron" — ver server/routes/viajes.js buscar()). Devuelve { fecha: "YYYY-MM-DD", hora: "HH:MM" },
+// mismo formato en el que se guardan fecha_salida/hora_salida en la tabla viajes.
+function fechaHoraArgentinaAhora() {
+  const ahoraArg = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  return {
+    fecha: ahoraArg.toISOString().slice(0, 10),
+    hora: ahoraArg.toISOString().slice(11, 16),
+  };
+}
+
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
   res.statusCode = status;
@@ -150,6 +166,7 @@ function verifyAdminToken(token) {
 module.exports = {
   newId,
   nowIso,
+  fechaHoraArgentinaAhora,
   ok,
   created,
   badRequest,
