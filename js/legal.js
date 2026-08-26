@@ -234,9 +234,11 @@ const REGLAS_SECTIONS = [
       silencio, música).</p>
       <h4>2.2 Búsqueda y reserva</h4>
       <p>El pasajero busca por origen, destino y fecha. Ve el precio y la valoración del conductor, pero <strong>no sus demás datos</strong>
-      (foto, auto, teléfono) hasta que la reserva quede confirmada — así evitamos que alguien lo contacte por fuera de la app antes de
-      confirmar y pagar. Al reservar, se envía la solicitud al conductor, quien puede <strong>aceptarla o rechazarla</strong>. Si la
-      acepta, recién ahí se habilitan los datos completos de contacto entre ambas partes para coordinar el encuentro.</p>
+      (foto, auto, teléfono) hasta que la reserva quede aceptada <strong>y</strong> haya pagado la comisión — así evitamos que alguien
+      lo contacte por fuera de la app antes de confirmar y pagar. Al reservar, se envía la solicitud al conductor, quien puede
+      <strong>aceptarla o rechazarla</strong>. Si la acepta, el pasajero tiene que pagar la comisión de la plataforma (ver 2.3) — recién
+      ahí, apenas suba el comprobante de esa transferencia, se habilitan los datos completos de contacto entre ambas partes para
+      coordinar el encuentro (no hace falta esperar a que el equipo de Ruta Compartida confirme que la plata efectivamente entró).</p>
       <p><strong>Orden de prioridad:</strong> cuando un viaje recibe más de una solicitud, el conductor tiene que resolverlas en el orden
       en que llegaron — primero la reserva más vieja. La plataforma no deja aceptar una solicitud más nueva mientras haya una anterior
       todavía sin aceptar ni rechazar para el mismo viaje.</p>
@@ -510,7 +512,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Puedo ver la foto, el auto o el teléfono del conductor antes de reservar?",
-    a: "Antes de reservar solo vas a ver su nombre y su valoración, además de todos los datos del viaje. La foto, el auto y el teléfono se muestran recién cuando el conductor acepta tu reserva — así evitamos que alguien contacte por fuera de la app antes de confirmar y pagar.",
+    a: "Antes de reservar solo vas a ver su nombre y su valoración, además de todos los datos del viaje. La foto, el auto y el teléfono se muestran recién cuando el conductor acepta tu reserva y vos ya pagaste la comisión (con subir el comprobante alcanza, no hace falta esperar a que se confirme) — así evitamos que alguien contacte por fuera de la app antes de confirmar y pagar.",
   },
   {
     q: "¿Puedo viajar con mascotas o equipaje grande?",

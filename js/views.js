@@ -245,7 +245,7 @@ async function viewDetalle(app, params) {
           <div>
             <strong>${escapeHtml(c.nombre || "")} ${escapeHtml((c.apellido || "")[0] || "")}.</strong>${c.genero ? ` <span class="muted">· ${escapeHtml(generoLabel(c.genero))}</span>` : ""}
             <div class="muted">${c.rating_count ? `★ ${c.rating_promedio} (${c.rating_count} viajes)` : "Todavía sin calificaciones"}</div>
-            <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto y el teléfono del conductor una vez que acepte tu reserva.</div>
+            <div class="muted" style="font-size:0.8rem;margin-top:4px">🔒 Vas a ver el auto y el teléfono del conductor una vez que acepte tu reserva y pagues la comisión de la app.</div>
           </div>
         </div>
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
@@ -1653,7 +1653,7 @@ async function viewMisViajes(app) {
           </div>
         </div>
         ${
-          ["aceptada", "completada"].includes(r.estado)
+          ["aceptada", "completada"].includes(r.estado) && (r.pagado || r.comprobante_pago)
             ? `<div class="info-box" style="margin-top:10px;display:flex;gap:10px;align-items:flex-start">
                 ${avatarHtml(r.conductor_foto, r.conductor_nombre, r.conductor_apellido)}
                 <div>
@@ -1664,7 +1664,9 @@ async function viewMisViajes(app) {
                   ${r.conductor_bio ? `<p class="muted" style="font-size:0.8rem;margin-top:4px">"${escapeHtml(r.conductor_bio)}"</p>` : ""}
                 </div>
               </div>`
-            : ""
+            : ["aceptada", "completada"].includes(r.estado)
+              ? `<div class="muted" style="font-size:0.8rem;margin-top:10px">🔒 Vas a ver el teléfono y el auto del conductor apenas pagues la comisión y subas el comprobante (no hace falta esperar a que se confirme).</div>`
+              : ""
         }
         ${
           r.pagado
@@ -1871,6 +1873,9 @@ async function viewPagar(app, params) {
           <strong>Transferí ${fmtMoney(reserva.comision_plataforma)} a:</strong><br>
           Alias / CBU: <strong>${escapeHtml(cobro.alias || "sin cargar")}</strong><br>
           ${cobro.titular ? `Titular: ${escapeHtml(cobro.titular)}${cobro.cuil ? ` (CUIL ${escapeHtml(cobro.cuil)})` : ""}<br>` : ""}
+        </div>
+        <div class="info-box" style="margin-top:14px">
+          🔒 Apenas subas el comprobante de esta transferencia se destapan el teléfono y el auto del conductor, para que puedan coordinar el encuentro.
         </div>
         <form id="form-pagar-comision" style="margin-top:16px">
           <div class="field">

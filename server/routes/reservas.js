@@ -8,9 +8,10 @@ const { enviarEmailAdmin } = require("../email");
 const { newId, nowIso, ok, created, badRequest, notFound, forbidden, readBody, boolFields } = require("../helpers");
 
 // Campos "completos" del conductor (foto, bio, auto, teléfono) que solo deben verse una vez
-// que el conductor ACEPTÓ la reserva — antes de eso el pasajero solo vio nombre y valoración
-// en el detalle del viaje (ver conConductor() en routes/viajes.js). Esto evita que alguien
-// contacte al conductor por fuera de la app antes de confirmar (y pagar la comisión).
+// que el conductor ACEPTÓ la reserva Y el pasajero ya inició el pago de la comisión (ver
+// filaReserva() más abajo) — antes de eso el pasajero solo vio nombre y valoración en el detalle
+// del viaje (ver conConductor() en routes/viajes.js). Esto evita que alguien contacte al
+// conductor por fuera de la app antes de confirmar y pagar.
 const CAMPOS_CONDUCTOR_COMPLETOS = [
   "conductor_foto",
   "conductor_bio",
@@ -32,7 +33,15 @@ function filaReserva(row) {
     if (copy[campo] !== null && copy[campo] !== undefined) copy[campo] = !!copy[campo];
   }
   const confirmada = ["aceptada", "completada"].includes(copy.estado);
-  if (!confirmada) {
+  // A pedido explícito del usuario (26 ago 2026: "quiero que retrases un paso mas esto, que le
+  // digas que haga la transferencia de la comision para obtener los datos del chofer") — hasta
+  // este cambio, alcanzaba con que el conductor aceptara la reserva para destapar los datos
+  // completos del conductor. Ahora, además de aceptada, hace falta que el pasajero ya haya
+  // iniciado el pago: alcanza con que haya subido el comprobante (no hace falta esperar a que el
+  // admin lo confirme — elegido así por el usuario vía AskUserQuestion, para no hacerlo esperar
+  // de más). "pagado" ya cubre el caso donde el admin además ya confirmó.
+  const pagoIniciado = !!copy.pagado || !!copy.comprobante_pago;
+  if (!confirmada || !pagoIniciado) {
     for (const campo of CAMPOS_CONDUCTOR_COMPLETOS) delete copy[campo];
   }
   // Puntos de encuentro del viaje completo (ver server/routes/viajes.js filaViaje) — solo viene
