@@ -102,9 +102,11 @@ router.get("/api/config/cobro", admin.datosCobro);
 // Almacenamiento real de archivos (Vercel Blob) — ver server/blob.js para la explicación completa
 // de por qué está armado así. "subir" es público (mismo nivel de confianza que el resto de la
 // app); "verDocumento" exige sesión de admin porque sirve documentos de identidad y comprobantes
-// de pago de otras personas.
+// de pago de otras personas; "verDocumentoPublico" (27 ago 2026) es la excepción a propósito — sin
+// sesión — solo para foto_perfil/vehiculo_foto, que cualquiera que use la app tiene que poder ver.
 router.post("/api/upload", blob.subir);
 router.get("/api/admin/documento", adminOnly(blob.verDocumento));
+router.get("/api/documento-publico", blob.verDocumentoPublico);
 
 // Búsqueda de puntos de encuentro (estaciones de servicio, terminales, etc.) para publicar un
 // viaje, detección automática de ciudades intermedias de una ruta, y entrega de la key de Google

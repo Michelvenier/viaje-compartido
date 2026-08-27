@@ -2519,7 +2519,7 @@ async function viewAdmin(app) {
 // (no por viaje) y hay que mantenerlo al día.
 function renderVehiculoEditable(fresco) {
   const fotoActual =
-    fresco.vehiculo_foto && /^https?:\/\//.test(fresco.vehiculo_foto)
+    fresco.vehiculo_foto && /^(https?:\/\/|\/api\/)/.test(fresco.vehiculo_foto)
       ? `<img src="${escapeHtml(fresco.vehiculo_foto)}" alt="Foto actual del auto" style="max-width:180px;border-radius:8px;display:block;margin-bottom:10px;object-fit:cover">`
       : "";
   return `

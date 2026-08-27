@@ -144,14 +144,16 @@ function wireAccordions(root = document) {
   });
 }
 
-// Devuelve el avatar de una persona: la foto real si tiene una cargada (foto_perfil subida como
-// público, ver server/blob.js — URL completa http(s)://...), o si no las iniciales de siempre.
-// Los pathnames privados viejos (subidos antes de este cambio, o cualquier otro campo que no sea
-// foto_perfil/vehiculo_foto) NO empiezan con "http", así que caen solos al fallback de iniciales
-// en vez de romper un <img> con una URL que nadie sin sesión de admin puede ver.
+// Devuelve el avatar de una persona: la foto real si tiene una cargada (foto_perfil subida, ver
+// server/blob.js — un link a "/api/documento-publico?..." desde el 27 ago 2026, antes una URL
+// completa http(s)://... de Vercel Blob cuando ese campo todavía se subía como público), o si no
+// las iniciales de siempre. Los pathnames privados viejos (subidos antes de este cambio, o
+// cualquier otro campo que no sea foto_perfil/vehiculo_foto) NO empiezan con "http" ni con "/api/",
+// así que caen solos al fallback de iniciales en vez de romper un <img> con una URL que nadie sin
+// sesión de admin puede ver.
 function avatarHtml(fotoUrl, nombre, apellido, claseExtra = "") {
   const clase = `avatar ${claseExtra}`.trim();
-  if (fotoUrl && /^https?:\/\//.test(fotoUrl)) {
+  if (fotoUrl && /^(https?:\/\/|\/api\/)/.test(fotoUrl)) {
     return `<img src="${escapeHtml(fotoUrl)}" alt="Foto de ${escapeHtml(nombre || "")}" class="${clase}" style="object-fit:cover">`;
   }
   return `<div class="${clase}">${iniciales(nombre, apellido)}</div>`;
@@ -649,7 +651,7 @@ function renderUploadField(name, label, hint) {
     <div class="field">
       <label>${label}</label>
       <div class="upload-field" data-upload="${name}">
-        <input type="file" accept="image/*" id="file-${name}" data-upload-input="${name}">
+        <input type="file" accept="image/*,.jfif,.heic,.heif" id="file-${name}" data-upload-input="${name}">
         <label for="file-${name}" class="upload-label" data-upload-label="${name}">📷 Subir foto / Sacar foto</label>
         <div class="muted upload-filename" data-upload-filename="${name}"></div>
       </div>
