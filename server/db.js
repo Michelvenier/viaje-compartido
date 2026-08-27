@@ -236,6 +236,16 @@ async function initSchema() {
     -- select del frontend (js/views.js) sí ofrece opciones fijas ("Mujer" / "Varón" / "Prefiero no
     -- decirlo") para mantenerlo simple y evitar texto libre arbitrario ahí.
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS genero TEXT;
+    -- Licencia de conducir y cédula verde/azul con frente y dorso por separado (27 ago 2026, a
+    -- pedido del usuario: "las dos son frente y dorso, osea dos opciones te tiene que dar"). Se
+    -- agregan columnas NUEVAS en vez de reutilizar doc_licencia/doc_cedula para no perder la foto
+    -- ya cargada por conductores que se registraron antes de este cambio — esas dos columnas viejas
+    -- quedan tal cual, sin usarse en el flujo de alta nuevo (ver server/routes/usuarios.js y
+    -- js/views.js, que ahora piden y guardan estas cuatro en su lugar).
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_licencia_frente TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_licencia_dorso TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_cedula_frente TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_cedula_dorso TEXT;
 
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,

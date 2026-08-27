@@ -1205,8 +1205,10 @@ function viewRegistro(app, params) {
           ${renderUploadField("doc_dni_frente", "DNI (frente)", "Botón de subir foto o sacar foto.")}
           ${renderUploadField("doc_dni_dorso", "DNI (dorso)")}
           ${renderUploadField("doc_selfie", "Selfie de validación", "Sacate una foto sosteniendo tu DNI al lado de tu cara. La revisa manualmente nuestro equipo, no usamos reconocimiento facial automático.")}
-          ${renderUploadField("doc_licencia", "Licencia de conducir")}
-          ${renderUploadField("doc_cedula", "Cédula verde / azul")}
+          ${renderUploadField("doc_licencia_frente", "Licencia de conducir (frente)")}
+          ${renderUploadField("doc_licencia_dorso", "Licencia de conducir (dorso)")}
+          ${renderUploadField("doc_cedula_frente", "Cédula verde / azul (frente)")}
+          ${renderUploadField("doc_cedula_dorso", "Cédula verde / azul (dorso)")}
           ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de la tarjeta de seguro que te pide la caminera en cualquier control de ruta.")}
           ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
           <div class="field">
@@ -1373,8 +1375,10 @@ function viewRegistro(app, params) {
           doc_dni_frente: getUpload("doc_dni_frente") || data.doc_dni_frente,
           doc_dni_dorso: getUpload("doc_dni_dorso") || data.doc_dni_dorso,
           doc_selfie: getUpload("doc_selfie") || data.doc_selfie,
-          doc_licencia: getUpload("doc_licencia") || data.doc_licencia,
-          doc_cedula: getUpload("doc_cedula") || data.doc_cedula,
+          doc_licencia_frente: getUpload("doc_licencia_frente") || data.doc_licencia_frente,
+          doc_licencia_dorso: getUpload("doc_licencia_dorso") || data.doc_licencia_dorso,
+          doc_cedula_frente: getUpload("doc_cedula_frente") || data.doc_cedula_frente,
+          doc_cedula_dorso: getUpload("doc_cedula_dorso") || data.doc_cedula_dorso,
           doc_seguro: getUpload("doc_seguro") || data.doc_seguro,
           doc_vtv: getUpload("doc_vtv") || data.doc_vtv,
           vtv_vencimiento: q("#f-vtv-vencimiento")?.value,
@@ -1432,7 +1436,9 @@ function viewRegistro(app, params) {
     if (rol === "conductor" && step === 2) {
       if (!data.doc_dni_frente || !data.doc_dni_dorso) errores.push("Subí ambas fotos del DNI.");
       if (!data.doc_selfie) errores.push("Subí la selfie de validación.");
-      if (!data.doc_licencia || !data.doc_cedula || !data.doc_seguro) errores.push("Faltan documentos del vehículo.");
+      if (!data.doc_licencia_frente || !data.doc_licencia_dorso) errores.push("Subí ambas fotos de tu licencia de conducir (frente y dorso).");
+      if (!data.doc_cedula_frente || !data.doc_cedula_dorso) errores.push("Subí ambas fotos de la cédula verde/azul (frente y dorso).");
+      if (!data.doc_seguro) errores.push("Falta la foto o captura del seguro vigente.");
       if (!data.doc_vtv) errores.push("Subí la foto de la oblea o constancia de tu VTV vigente.");
       if (!data.vtv_vencimiento) errores.push("Indicá la fecha de vencimiento de tu VTV.");
       else if (new Date(data.vtv_vencimiento) < new Date(new Date().toDateString())) {
@@ -2195,8 +2201,20 @@ async function viewAdmin(app) {
                     ${botonVerDocumento(u.doc_dni_frente, "DNI frente")}
                     ${botonVerDocumento(u.doc_dni_dorso, "DNI dorso")}
                     ${botonVerDocumento(u.doc_selfie, "Selfie")}
-                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_licencia, "Licencia") : ""}
-                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_cedula, "Cédula") : ""}
+                    ${
+                      u.rol === "conductor"
+                        ? u.doc_licencia_frente || u.doc_licencia_dorso
+                          ? `${botonVerDocumento(u.doc_licencia_frente, "Licencia frente")}${botonVerDocumento(u.doc_licencia_dorso, "Licencia dorso")}`
+                          : botonVerDocumento(u.doc_licencia, "Licencia")
+                        : ""
+                    }
+                    ${
+                      u.rol === "conductor"
+                        ? u.doc_cedula_frente || u.doc_cedula_dorso
+                          ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
+                          : botonVerDocumento(u.doc_cedula, "Cédula")
+                        : ""
+                    }
                     ${u.rol === "conductor" ? botonVerDocumento(u.doc_seguro, "Seguro") : ""}
                   </div>
                   ${

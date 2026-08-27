@@ -50,8 +50,12 @@ function registrar(rol) {
     }
 
     if (rol === "conductor") {
-      if (!body.doc_licencia) return badRequest(res, "Falta la foto de la licencia de conducir.");
-      if (!body.doc_cedula) return badRequest(res, "Falta la foto de la cédula verde/azul.");
+      if (!body.doc_licencia_frente || !body.doc_licencia_dorso) {
+        return badRequest(res, "Falta la foto de la licencia de conducir (frente y dorso).");
+      }
+      if (!body.doc_cedula_frente || !body.doc_cedula_dorso) {
+        return badRequest(res, "Falta la foto de la cédula verde/azul (frente y dorso).");
+      }
       if (!body.doc_seguro) return badRequest(res, "Falta la foto/captura de la póliza de seguro vigente.");
       if (!body.doc_vtv) {
         return badRequest(res, "Falta la foto de la oblea o constancia de VTV vigente.");
@@ -80,11 +84,13 @@ function registrar(rol) {
       `INSERT INTO usuarios (
         id, rol, nombre, apellido, edad, dni, telefono, email, domicilio, foto_perfil, bio, genero,
         pref_fuma, pref_mascotas, pref_musica, pref_charla, pref_equipaje, estado_validacion,
-        doc_dni_frente, doc_dni_dorso, doc_selfie, doc_licencia, doc_cedula, doc_seguro, doc_vtv_declarada,
+        doc_dni_frente, doc_dni_dorso, doc_selfie,
+        doc_licencia_frente, doc_licencia_dorso, doc_cedula_frente, doc_cedula_dorso,
+        doc_seguro, doc_vtv_declarada,
         doc_vtv, vtv_vencimiento,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
         alias_cobro, password, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -109,8 +115,10 @@ function registrar(rol) {
         body.doc_dni_frente,
         body.doc_dni_dorso,
         body.doc_selfie,
-        body.doc_licencia || null,
-        body.doc_cedula || null,
+        body.doc_licencia_frente || null,
+        body.doc_licencia_dorso || null,
+        body.doc_cedula_frente || null,
+        body.doc_cedula_dorso || null,
         body.doc_seguro || null,
         body.doc_vtv ? 1 : 0,
         body.doc_vtv || null,
