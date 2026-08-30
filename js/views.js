@@ -2041,6 +2041,41 @@ function botonVerDocumento(pathname, etiqueta) {
   return `<button type="button" class="btn btn-outline btn-sm" data-ver-documento="${escapeHtml(pathname)}">👁️ Ver ${escapeHtml(etiqueta)}</button>`;
 }
 
+// Botón plegable "📄 Ver documentos" para la fila de un usuario en "Todos los usuarios" (30 ago
+// 2026, a pedido del usuario: "donde puedo ver toda la documentacion que cargan los usuarios? Una vez
+// que los acepte") — hasta este agregado, los botones de "Ver DNI/Licencia/..." SOLO existían en la
+// tabla de "Validaciones pendientes" (arriba), así que en cuanto se aprobaba a alguien y salía de esa
+// tabla, no había forma de volver a ver su documentación desde el panel. Mismo criterio de
+// compatibilidad con cuentas viejas que ya usa esa tabla para licencia/cédula (ver 27 ago 2026): si la
+// cuenta tiene los campos nuevos de frente/dorso cargados, se muestran esos dos; si no (cuenta
+// registrada antes de ese cambio), se muestra el campo único viejo.
+function documentosUsuarioToggleHtml(u) {
+  const botones = [
+    botonVerDocumento(u.doc_dni_frente, "DNI frente"),
+    botonVerDocumento(u.doc_dni_dorso, "DNI dorso"),
+    botonVerDocumento(u.doc_selfie, "Selfie"),
+  ];
+  if (u.rol === "conductor") {
+    botones.push(
+      u.doc_licencia_frente || u.doc_licencia_dorso
+        ? `${botonVerDocumento(u.doc_licencia_frente, "Licencia frente")}${botonVerDocumento(u.doc_licencia_dorso, "Licencia dorso")}`
+        : botonVerDocumento(u.doc_licencia, "Licencia")
+    );
+    botones.push(
+      u.doc_cedula_frente || u.doc_cedula_dorso
+        ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
+        : botonVerDocumento(u.doc_cedula, "Cédula")
+    );
+    botones.push(botonVerDocumento(u.doc_seguro, "Seguro"));
+    botones.push(botonVerDocumento(u.doc_vtv, "VTV"));
+  }
+  return `
+    <button type="button" class="btn btn-outline btn-sm" data-toggle-documentos="${u.id}">📄 Ver documentos</button>
+    <div data-documentos-usuario="${u.id}" hidden style="flex-wrap:wrap;gap:4px;margin-top:6px;min-width:180px">
+      ${botones.join("")}
+    </div>`;
+}
+
 // ---------------------------------------------------------------------------
 // ADMIN — validación manual de perfiles + configuración de precios de referencia
 // ---------------------------------------------------------------------------
@@ -2284,7 +2319,7 @@ async function viewAdmin(app) {
           <input type="text" id="buscar-usuario" placeholder="Buscar por nombre, email o teléfono...">
         </div>
         <table class="admin-table">
-          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Valoración</th><th>Cuenta</th><th>Alta</th><th>Acción</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Valoración</th><th>Cuenta</th><th>Alta</th><th>Documentos</th><th>Acción</th></tr></thead>
           <tbody id="tabla-usuarios">
             ${usuarios
               .map((u) => {
@@ -2305,6 +2340,7 @@ async function viewAdmin(app) {
               <td>${valoracion}</td>
               <td>${cuenta}</td>
               <td class="muted" style="font-size:0.78rem">${alta}</td>
+              <td>${documentosUsuarioToggleHtml(u)}</td>
               <td><button class="btn btn-outline btn-sm" data-resetear-password="${u.id}" data-usuario-telefono="${escapeHtml(u.telefono || "")}" data-usuario-nombre="${escapeHtml(u.nombre || "")}">Restablecer contraseña</button></td>
             </tr>`;
               })
@@ -2450,6 +2486,16 @@ async function viewAdmin(app) {
         btn.disabled = false;
         btn.textContent = textoOriginal;
       }
+    })
+  );
+  // Toggle del bloque de documentos en "Todos los usuarios" (30 ago 2026) — ver
+  // documentosUsuarioToggleHtml() más arriba.
+  app.querySelectorAll("[data-toggle-documentos]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const div = app.querySelector(`[data-documentos-usuario="${btn.dataset.toggleDocumentos}"]`);
+      if (!div) return;
+      div.hidden = !div.hidden;
+      div.style.display = div.hidden ? "" : "flex";
     })
   );
   app.querySelectorAll("[data-aprobar]").forEach((btn) =>
