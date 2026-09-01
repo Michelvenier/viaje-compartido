@@ -334,6 +334,7 @@ async function initSchema() {
 
   await migrarPeajesReales24Ago2026();
   await migrarPeajesReales25Ago2026();
+  await migrarPeajesReales01Sep2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -426,6 +427,38 @@ async function migrarPeajesReales25Ago2026() {
   for (const [ciudad, peajeNuevo] of Object.entries(PEAJES_NUEVOS_25AGO2026)) {
     const actual = distancias[ciudad];
     if (actual && actual.peaje === PEAJES_VIEJOS_25AGO2026[ciudad]) {
+      distancias[ciudad] = { ...actual, peaje: peajeNuevo };
+      cambio = true;
+    }
+  }
+  if (cambio) {
+    await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);
+  }
+}
+
+// Migración puntual (01 sep 2026) — refresco mensual de peajes, a pedido del usuario: "actualizame lo
+// de los peajes... chequea y actualiza todo que algunos los veo sobrevaluados". Corrige "Bolívar"
+// (verificado por primera vez, buscando como "San Carlos de Bolívar") y "Santa Rosa" (que venía
+// agrupada con Trenque Lauquen a un valor mucho más alto que el real — ver el comentario en
+// server/corredor.js DISTANCIAS_DEFAULT para el detalle de la ruta y la asimetría de sentido
+// encontrada en Ruta0). Mismo patrón que las migraciones anteriores: solo pisa el valor si todavía
+// coincide EXACTO con el viejo, para respetar cualquier edición manual del admin.
+const PEAJES_VIEJOS_01SEP2026 = {
+  "Bolívar": 4000,
+  "Santa Rosa": 29306,
+};
+const PEAJES_NUEVOS_01SEP2026 = {
+  "Bolívar": 1500,
+  "Santa Rosa": 4500,
+};
+async function migrarPeajesReales01Sep2026() {
+  const filaDistancias = await get("SELECT valor FROM config WHERE clave = 'distancias_corredor'");
+  if (!filaDistancias) return;
+  const distancias = JSON.parse(filaDistancias.valor);
+  let cambio = false;
+  for (const [ciudad, peajeNuevo] of Object.entries(PEAJES_NUEVOS_01SEP2026)) {
+    const actual = distancias[ciudad];
+    if (actual && actual.peaje === PEAJES_VIEJOS_01SEP2026[ciudad]) {
       distancias[ciudad] = { ...actual, peaje: peajeNuevo };
       cambio = true;
     }

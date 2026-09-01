@@ -74,8 +74,17 @@ const CIUDADES_CORREDOR = [
 // plana por km ($58/km × 258 km ≈ $14.960 — muy por arriba de la realidad). Ahora el peaje de esta
 // tabla se usa SIEMPRE que el par toca La Plata y la ciudad está acá, tenga o no Google Maps el km —
 // ver server/pricing.js calcularPorCiudades() para el detalle.
-// No se pudo verificar todavía (queda con el valor viejo, a revisar a mano desde el panel admin si
-// alguien nota que está mal): "Bolívar".
+// TERCERA CORRECCIÓN, 01 sep 2026 (refresco mensual, a pedido del usuario: "actualizame lo de los
+// peajes... chequea y actualiza todo que algunos los veo sobrevaluados"): se verificó "Bolívar" por
+// primera vez (buscando como "San Carlos de Bolívar" en vez de solo "Bolívar", que no daba resultado
+// en Ruta0) — 353 km, peaje real $1.500 (una sola cabina, Uribelarrea, mismo camino que
+// Saladillo/General Alvear). También se corrigió "Santa Rosa", que venía agrupada con Trenque Lauquen
+// a $29.306: consultada de forma directa (La Plata → Santa Rosa), Ruta0 da 688 km y peaje $4.500 (tres
+// cabinas: Uribelarrea, 9 de Julio, Trenque Lauquen), por una ruta distinta a la de Trenque Lauquen
+// (evita la autopista cara de Hudson-Quilmes-Ituzaingó-Luján). OJO: en sentido inverso (Santa Rosa → La
+// Plata) Ruta0 devuelve una ruta distinta con peaje $29.306 — es una asimetría real del algoritmo de
+// ruteo de Ruta0, no un error de carga; se usa el valor de ida (La Plata → ciudad) para mantener el
+// mismo criterio que las otras 16 filas de esta tabla, todas consultadas en ese mismo sentido.
 const DISTANCIAS_DEFAULT = {
   "Chascomús": { km: 120, peaje: 7900 },
   "Rauch": { km: 190, peaje: 0 },
@@ -90,9 +99,9 @@ const DISTANCIAS_DEFAULT = {
   "Carlos Casares": { km: 380, peaje: 27806 },
   "Pehuajó": { km: 420, peaje: 27806 },
   "Trenque Lauquen": { km: 480, peaje: 29306 },
-  "Santa Rosa": { km: 600, peaje: 29306 },
+  "Santa Rosa": { km: 600, peaje: 4500 },
   "Saladillo": { km: 203, peaje: 1500 },
-  "Bolívar": { km: 416, peaje: 4000 },
+  "Bolívar": { km: 416, peaje: 1500 },
   "General Alvear": { km: 258, peaje: 1500 },
 };
 
