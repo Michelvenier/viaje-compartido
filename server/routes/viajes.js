@@ -14,6 +14,15 @@ function coordsValidas(c) {
   return c && typeof c === "object" && typeof c.lat === "number" && typeof c.lng === "number" ? c : undefined;
 }
 
+// Valida la forma básica de ciudades_intermedias que venga del cliente (array de strings) — nunca
+// se confía en el shape sin chequear. Se usa para que pricing.calcularPorCiudades pueda detectar si
+// el conductor eligió una ruta alternativa real y verificada (ver server/corredor.js "variantes",
+// 07 sep 2026, a pedido del usuario "si voy por Saladillo no tengo esos peajes"). Si viene algo raro,
+// se ignora como si no hubiera intermedias — nunca rompe el cálculo de precio.
+function ciudadesIntermediasValidas(arr) {
+  return Array.isArray(arr) ? arr.filter((c) => typeof c === "string" && c.trim()) : [];
+}
+
 // Cuenta corriente del conductor: acumula deuda cuando cancela un viaje que ya tenía reservas
 // pagadas (Ruta Compartida pierde la comisión de Mercado Pago al tener que reembolsar esa
 // comisión al pasajero, aunque el reembolso en sí siempre sea correcto y se haga igual). El monto
@@ -119,8 +128,13 @@ async function publicar(req, res) {
   }
 
   const conductor = await db.get("SELECT * FROM usuarios WHERE id = ?", [body.conductor_id]);
-  if (!conductor || conductor.rol !== "conductor") {
-    return badRequest(res, "El usuario no es un conductor registrado.");
+  // Desde el 07 sep 2026 (rol dual, a pedido del usuario): publicar viajes ya no depende de que
+  // "rol" sea exactamente "conductor" — depende de "es_conductor", que se habilita cuando la
+  // documentación de conductor (licencia, cédula, seguro, VTV, auto) fue aprobada, sea que la
+  // cuenta se haya registrado originalmente como conductor o que haya sido un pasajero que la pidió
+  // después desde "Mi perfil" (ver server/routes/usuarios.js solicitarConductor()).
+  if (!conductor || !conductor.es_conductor) {
+    return badRequest(res, "El usuario no tiene habilitado publicar viajes como conductor.");
   }
   if (conductor.estado_validacion !== "aprobado") {
     return forbidden(
@@ -166,7 +180,8 @@ async function publicar(req, res) {
     body.destino_ciudad,
     asientosOfrecidos,
     coordsValidas(body.origen_coords),
-    coordsValidas(body.destino_coords)
+    coordsValidas(body.destino_coords),
+    ciudadesIntermediasValidas(body.ciudades_intermedias)
   );
   if (calculo.error) return badRequest(res, calculo.error);
 
@@ -418,7 +433,8 @@ async function calcularVista(req, res) {
     body.destino_ciudad,
     asientos,
     coordsValidas(body.origen_coords),
-    coordsValidas(body.destino_coords)
+    coordsValidas(body.destino_coords),
+    ciudadesIntermediasValidas(body.ciudades_intermedias)
   );
   if (calculo.error) return badRequest(res, calculo.error);
   ok(res, calculo);

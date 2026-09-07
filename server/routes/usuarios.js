@@ -111,7 +111,13 @@ function registrar(rol) {
         body.pref_musica || "indistinto",
         body.pref_charla || "indistinto",
         body.pref_equipaje || null,
-        "pendiente",
+        // Desde el 07 sep 2026, a pedido explícito del usuario ("Quiero que EL ROL DE PASAJERO SE
+        // AUTORICE SOLO, CON LAS FOTOS QUE SUBA el pasajero, despues que la informacion se guarde
+        // como siempre"): un pasajero queda 'aprobado' automáticamente apenas se guarda su
+        // registro con las fotos (DNI frente/dorso + selfie) — sin esperar revisión manual del
+        // admin. El conductor SIGUE necesitando la revisión manual de siempre (identidad +
+        // licencia/cédula/seguro/VTV/auto), por el riesgo mayor de manejar pasajeros.
+        rol === "pasajero" ? "aprobado" : "pendiente",
         body.doc_dni_frente,
         body.doc_dni_dorso,
         body.doc_selfie,
@@ -139,7 +145,9 @@ function registrar(rol) {
     created(res, {
       usuario: usuarioPublico(row),
       mensaje:
-        "¡Listo! Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs.",
+        rol === "pasajero"
+          ? "¡Listo! Tu perfil de pasajero ya está aprobado con las fotos que subiste — ya podés buscar y reservar viajes."
+          : "¡Listo! Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs.",
     });
   };
 }
@@ -172,6 +180,11 @@ async function actualizar(req, res, params) {
     "pref_equipaje",
     "domicilio",
     "telefono",
+    // Email (07 sep 2026, a pedido explícito del usuario: "Quiero que todos los usuarios puedan
+    // modificar sus datos de contacto") — antes no se podía cambiar nunca después del registro.
+    // Tiene manejo aparte más abajo porque hay que revalidar que no choque con otra cuenta (la
+    // columna es UNIQUE) antes de guardarlo.
+    "email",
     "vehiculo_asientos",
     // A pedido del usuario (19 ago 2026: "por si el chofer publica en uno y viaja en otro"): antes
     // estos 5 campos solo se cargaban una vez, en el paso 3 del registro, y no había forma de
@@ -195,6 +208,14 @@ async function actualizar(req, res, params) {
       }
       sets.push(`${c} = ?`);
       values.push(hashPassword(body.password));
+      continue;
+    }
+    if (c === "email") {
+      if (!body.email) return badRequest(res, "El email no puede quedar vacío.");
+      const otroConEseEmail = await db.get("SELECT id FROM usuarios WHERE email = ? AND id != ?", [body.email, params.id]);
+      if (otroConEseEmail) return badRequest(res, "Ya existe otra cuenta registrada con ese email.");
+      sets.push(`${c} = ?`);
+      values.push(body.email);
       continue;
     }
     sets.push(`${c} = ?`);
@@ -320,4 +341,76 @@ async function declararPagoCuenta(req, res, params) {
   });
 }
 
-module.exports = { registrar, obtener, actualizar, login, verCuentaCorriente, declararPagoCuenta };
+// Rol dual (07 sep 2026, a pedido explícito del usuario: "que puedan ser conductores y
+// pasajeros") — una cuenta que se registró como pasajero carga acá la documentación de conductor
+// (licencia, cédula, seguro, VTV, auto) para poder publicar viajes también, sin tener que crear una
+// cuenta nueva. Mismos requisitos y mismas validaciones que en registrar("conductor"). Queda
+// "pendiente" de revisión manual — ver server/routes/admin.js validarConductor() — hasta que el
+// admin la aprueba, momento en el que recién se habilita es_conductor.
+async function solicitarConductor(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  const row = await db.get("SELECT * FROM usuarios WHERE id = ?", [params.id]);
+  if (!row) return notFound(res, "Usuario no encontrado");
+  if (row.rol === "admin") return badRequest(res, "Una cuenta de administrador no puede publicar viajes.");
+  if (row.es_conductor) return badRequest(res, "Esta cuenta ya puede publicar viajes.");
+  if (row.conductor_estado_validacion === "pendiente") {
+    return badRequest(res, "Ya tenés una solicitud en revisión — te avisamos por WhatsApp en menos de 24 hs.");
+  }
+
+  if (!body.doc_licencia_frente || !body.doc_licencia_dorso) {
+    return badRequest(res, "Falta la foto de la licencia de conducir (frente y dorso).");
+  }
+  if (!body.doc_cedula_frente || !body.doc_cedula_dorso) {
+    return badRequest(res, "Falta la foto de la cédula verde/azul (frente y dorso).");
+  }
+  if (!body.doc_seguro) return badRequest(res, "Falta la foto/captura de la póliza de seguro vigente.");
+  if (!body.doc_vtv) return badRequest(res, "Falta la foto de la oblea o constancia de VTV vigente.");
+  if (!body.vtv_vencimiento) return badRequest(res, "Indicá la fecha de vencimiento de tu VTV.");
+  if (new Date(body.vtv_vencimiento) < new Date(new Date().toDateString())) {
+    return badRequest(res, "La fecha de vencimiento de tu VTV ya pasó.");
+  }
+  if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
+    return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
+  }
+
+  await db.run(
+    `UPDATE usuarios SET
+       doc_licencia_frente = ?, doc_licencia_dorso = ?, doc_cedula_frente = ?, doc_cedula_dorso = ?,
+       doc_seguro = ?, doc_vtv = ?, doc_vtv_declarada = 1, vtv_vencimiento = ?,
+       vehiculo_marca = ?, vehiculo_modelo = ?, vehiculo_color = ?, vehiculo_patente = ?,
+       vehiculo_foto = ?, vehiculo_asientos = ?,
+       conductor_estado_validacion = 'pendiente', conductor_motivo_rechazo = NULL, conductor_solicitado_at = ?
+     WHERE id = ?`,
+    [
+      body.doc_licencia_frente,
+      body.doc_licencia_dorso,
+      body.doc_cedula_frente,
+      body.doc_cedula_dorso,
+      body.doc_seguro,
+      body.doc_vtv,
+      body.vtv_vencimiento,
+      body.vehiculo_marca,
+      body.vehiculo_modelo,
+      body.vehiculo_color || null,
+      body.vehiculo_patente,
+      body.vehiculo_foto || null,
+      body.vehiculo_asientos || 3,
+      nowIso(),
+      params.id,
+    ]
+  );
+
+  const actualizado = await db.get("SELECT * FROM usuarios WHERE id = ?", [params.id]);
+  created(res, {
+    usuario: usuarioPublico(actualizado),
+    mensaje:
+      "¡Listo! Revisamos manualmente tu documentación de conductor antes de habilitarte a publicar viajes. Te avisamos por WhatsApp en menos de 24 hs.",
+  });
+}
+
+module.exports = { registrar, obtener, actualizar, login, verCuentaCorriente, declararPagoCuenta, solicitarConductor };

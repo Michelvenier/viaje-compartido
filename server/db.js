@@ -246,6 +246,30 @@ async function initSchema() {
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_licencia_dorso TEXT;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_cedula_frente TEXT;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS doc_cedula_dorso TEXT;
+    -- Rol dual: cualquier cuenta puede ser conductor Y pasajero (07 sep 2026, a pedido explícito
+    -- del usuario: "Quiero que todos los usuarios puedan modificar sus datos de contacto y que
+    -- puedan ser conductores y pasajeros"). "rol" (arriba) queda tal cual, como el tipo de cuenta
+    -- con el que se registró originalmente — ya NO es lo único que decide qué puede hacer:
+    --   - Reservar viajes como pasajero: ahora lo puede hacer CUALQUIER cuenta validada que no sea
+    --     admin (ver server/routes/reservas.js crear()) — no hace falta ningún flag nuevo, porque
+    --     los datos que ya pide el registro (DNI, selfie, teléfono, email) alcanzan igual para un
+    --     conductor que para un pasajero.
+    --   - Publicar viajes como conductor: hace falta licencia, cédula, seguro, VTV y auto, que un
+    --     pasajero no tiene cargados — por eso esto SÍ es un flag aparte, "es_conductor", que se
+    --     habilita recién cuando esa documentación fue revisada y aprobada.
+    -- "es_conductor" arranca en 0 para todas las cuentas; se pone en 1 automáticamente para los
+    -- conductores YA aprobados (ver migrarRolDual07Sep2026 más abajo), y para cualquier cuenta
+    -- nueva en el momento en que se aprueba su documentación de conductor (ver server/routes/
+    -- admin.js validar() y validarConductor()).
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_conductor INTEGER DEFAULT 0;
+    -- Estado de la SOLICITUD para publicar viajes, aparte del estado_validacion general de la
+    -- cuenta (que sigue siendo sobre la identidad: DNI, selfie, teléfono, email). Null = nunca la
+    -- pidió; 'pendiente'/'aprobado'/'rechazado' una vez que carga la documentación de conductor
+    -- desde "Mi perfil" (ver server/routes/usuarios.js solicitarConductor()) — mismo patrón de
+    -- revisión manual que ya existe para el alta de una cuenta nueva.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS conductor_estado_validacion TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS conductor_motivo_rechazo TEXT;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS conductor_solicitado_at TEXT;
 
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,
@@ -335,6 +359,9 @@ async function initSchema() {
   await migrarPeajesReales24Ago2026();
   await migrarPeajesReales25Ago2026();
   await migrarPeajesReales01Sep2026();
+  await migrarRolDual07Sep2026();
+  await migrarAutoAprobarPasajeros07Sep2026();
+  await migrarVariantesRuta07Sep2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -462,6 +489,69 @@ async function migrarPeajesReales01Sep2026() {
       distancias[ciudad] = { ...actual, peaje: peajeNuevo };
       cambio = true;
     }
+  }
+  if (cambio) {
+    await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);
+  }
+}
+
+// Migración puntual (07 sep 2026) — a pedido explícito del usuario: "Quiero que todos los usuarios
+// puedan modificar sus datos de contacto y que puedan ser conductores y pasajeros". Habilita
+// AUTOMÁTICAMENTE la mitad "fácil" del rol dual: todo conductor que YA estaba aprobado pasa a poder
+// también reservar viajes como pasajero (ya tiene todos los datos que hacen falta — DNI, selfie,
+// teléfono, email — no le falta nada nuevo). La mitad inversa (un pasajero que además quiere
+// publicar viajes) NO se habilita sola porque le falta documentación real (licencia, cédula,
+// seguro, VTV, auto) — esa persona tiene que pedirlo desde "Mi perfil" y pasar la misma revisión
+// manual que cualquier alta nueva (ver solicitarConductor() en server/routes/usuarios.js).
+// Solo toca cuentas que todavía no pasaron por esto (conductor_estado_validacion IS NULL), para no
+// pisar nunca una decisión posterior del admin — corre en cada arranque en frío pero después de la
+// primera vez ya no encuentra filas para tocar.
+async function migrarRolDual07Sep2026() {
+  await run(
+    `UPDATE usuarios SET es_conductor = 1, conductor_estado_validacion = 'aprobado'
+     WHERE rol = 'conductor' AND estado_validacion = 'aprobado' AND conductor_estado_validacion IS NULL`
+  );
+}
+
+// Migración puntual (07 sep 2026) — a pedido explícito del usuario: "Quiero que EL ROL DE PASAJERO SE
+// AUTORICE SOLO, CON LAS FOTOS QUE SUBA el pasajero, despues que la informacion se guarde como
+// siempre". Desde este cambio, server/routes/usuarios.js registrar("pasajero") ya inserta la cuenta
+// nueva directo con estado_validacion = 'aprobado' (ver esa función) — esta migración es solo para
+// no dejar colgadas a mitad de camino a las cuentas de pasajero que ya estaban registradas ANTES de
+// este cambio y todavía seguían "pendiente" de que el admin las revisara a mano: pasan a 'aprobado'
+// una sola vez. A los CONDUCTORES no los toca — su identidad y su documentación de vehículo siguen
+// necesitando la revisión manual de siempre (ver migrarRolDual07Sep2026 arriba, que es la que sigue
+// habilitando la mitad "conductor ya aprobado" del rol dual). Corre en cada arranque en frío, pero
+// después de la primera vez ya no encuentra ninguna fila que tocar (todo pasajero nuevo entra directo
+// 'aprobado' y nunca vuelve a quedar en 'pendiente').
+async function migrarAutoAprobarPasajeros07Sep2026() {
+  await run(`UPDATE usuarios SET estado_validacion = 'aprobado' WHERE rol = 'pasajero' AND estado_validacion = 'pendiente'`);
+}
+
+// Migración puntual (07 sep 2026) — a pedido explícito del usuario: "pero si voy por saladillo no
+// tengo esos peajes!!". El seed inicial de "distancias_corredor" (ver arriba, ["distancias_corredor",
+// JSON.stringify(DISTANCIAS_DEFAULT)]) guardó una FOTO completa de DISTANCIAS_DEFAULT en la base el
+// día que se creó — así que agregar el campo nuevo "variantes" a una ciudad en el CÓDIGO (ver
+// server/corredor.js, la variante "vía Saladillo" de Pehuajó) no alcanza para que la app lo use en
+// producción: server/pricing.js getDistanciasCorredor() hace `{ ...DISTANCIAS_DEFAULT, ...guardado }`,
+// y como "guardado" ya trae su propia entrada completa para Pehuajó (sin variantes), esa entrada
+// gana y la de arriba con variantes nunca se ve — mismo problema de fondo que ya pasó con
+// peaje_por_km_estimado y con cada corrección de peaje anterior (24/25 ago, 01 sep 2026), ver esas
+// migraciones arriba. Esta migración copia el array "variantes" de DISTANCIAS_DEFAULT hacia la fila
+// ya guardada en la base, PERO SOLO para las ciudades a las que todavía les falta (nunca pisa
+// km/peaje de ninguna ciudad, ni una variante que el admin ya haya guardado a mano en algún
+// momento) — así conserva cualquier edición manual y es 100% aditiva. Corre en cada arranque en frío,
+// pero después de la primera vez ya no encuentra ninguna ciudad a la que agregarle nada.
+async function migrarVariantesRuta07Sep2026() {
+  const filaDistancias = await get("SELECT valor FROM config WHERE clave = 'distancias_corredor'");
+  if (!filaDistancias) return;
+  const distancias = JSON.parse(filaDistancias.valor);
+  let cambio = false;
+  for (const [ciudad, datosDefault] of Object.entries(DISTANCIAS_DEFAULT)) {
+    if (!datosDefault.variantes) continue; // esta ciudad no tiene ninguna variante cargada en el código
+    if (!distancias[ciudad] || distancias[ciudad].variantes) continue; // no existe, o ya la tiene (propia o de una corrida anterior)
+    distancias[ciudad] = { ...distancias[ciudad], variantes: datosDefault.variantes };
+    cambio = true;
   }
   if (cambio) {
     await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);

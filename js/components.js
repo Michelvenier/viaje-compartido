@@ -764,7 +764,15 @@ function renderNavSession() {
     nav.innerHTML = `<a href="#/login" class="btn btn-outline btn-sm">Ingresar</a>`;
     return;
   }
-  const rolLabel = user.rol === "conductor" ? "🚗 Conductor" : user.rol === "pasajero" ? "🧳 Pasajero" : "🛠️ Admin";
+  // Desde el 07 sep 2026 (rol dual): una cuenta con capacidad de conductor (es_conductor, o el rol
+  // original "conductor" mientras se aprueba) muestra las dos etiquetas juntas — ya no es "una
+  // cosa u otra", cualquier cuenta no-admin puede tener ambas capacidades a la vez.
+  const rolLabel =
+    user.rol === "admin"
+      ? "🛠️ Admin"
+      : user.es_conductor || user.rol === "conductor"
+        ? "🚗🧳 Conductor y pasajero"
+        : "🧳 Pasajero";
   nav.innerHTML = `
     <a href="#/mis-viajes" class="chip-user">${rolLabel}: ${escapeHtml(user.nombre)}</a>
     <button class="btn-logout" id="btn-logout">Salir</button>`;

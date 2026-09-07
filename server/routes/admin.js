@@ -22,10 +22,13 @@ async function listarUsuarios(req, res) {
 // cancelan, y las cancelaciones seguidas actuales (ver server/choferes.js) — para poder ver de un
 // vistazo a quién hay que mirar de cerca, sin esperar a que llegue a suspenderse solo.
 async function choferesStats(req, res) {
+  // Desde el 07 sep 2026 (rol dual): esta lista es de quien PUEDE publicar viajes hoy
+  // (es_conductor = 1), sea que la cuenta se haya registrado originalmente como conductor o que
+  // haya sido un pasajero al que se le aprobó después la documentación de conductor.
   const conductores = await db.all(
     `SELECT id, nombre, apellido, email, telefono, estado_validacion, rating_promedio, rating_count,
             suspendido, suspendido_motivo, suspendido_at
-     FROM usuarios WHERE rol = 'conductor' ORDER BY nombre ASC, apellido ASC`
+     FROM usuarios WHERE es_conductor = 1 ORDER BY nombre ASC, apellido ASC`
   );
   const resultado = [];
   for (const c of conductores) {
@@ -46,7 +49,7 @@ async function choferesStats(req, res) {
 }
 
 async function reactivarChofer(req, res, params) {
-  const usuario = await db.get("SELECT id, nombre, apellido FROM usuarios WHERE id = ? AND rol = 'conductor'", [params.id]);
+  const usuario = await db.get("SELECT id, nombre, apellido FROM usuarios WHERE id = ? AND es_conductor = 1", [params.id]);
   if (!usuario) return notFound(res, "Conductor no encontrado");
   await db.run("UPDATE usuarios SET suspendido = 0, suspendido_motivo = NULL, suspendido_at = NULL WHERE id = ?", [params.id]);
   ok(res, { mensaje: `${usuario.nombre} ${usuario.apellido} fue reactivado — ya puede volver a publicar viajes.` });
@@ -99,6 +102,62 @@ async function validar(req, res, params) {
     body.motivo || null,
     params.id,
   ]);
+  // Desde el 07 sep 2026 (rol dual): esta validación (DNI, selfie, teléfono, email — y para
+  // conductores, además licencia/cédula/seguro/VTV/auto) sigue siendo la de identidad base. Si la
+  // cuenta se registró originalmente como conductor (rol = 'conductor') y todavía no tiene un
+  // estado de capacidad de conductor propio (conductor_estado_validacion NULL — es decir, nunca
+  // pasó por el flujo nuevo de "Mi perfil"), se deriva acá mismo: aprobar/rechazar esta validación
+  // aprueba/rechaza también la capacidad de publicar viajes, tal cual funcionaba antes de esta
+  // fecha. Una cuenta que ya tiene conductor_estado_validacion seteado (porque lo pidió después
+  // desde "Mi perfil") NO se toca acá — eso se maneja con validarConductor().
+  if (row.rol === "conductor" && row.conductor_estado_validacion == null) {
+    if (body.estado === "aprobado") {
+      await db.run(
+        "UPDATE usuarios SET es_conductor = 1, conductor_estado_validacion = 'aprobado', conductor_motivo_rechazo = NULL WHERE id = ?",
+        [params.id]
+      );
+    } else {
+      await db.run(
+        "UPDATE usuarios SET es_conductor = 0, conductor_estado_validacion = 'rechazado', conductor_motivo_rechazo = ? WHERE id = ?",
+        [body.motivo || null, params.id]
+      );
+    }
+  }
+  const actualizado = await db.get("SELECT * FROM usuarios WHERE id = ?", [params.id]);
+  ok(res, usuarioPublico(actualizado));
+}
+
+// Cola de pedidos de capacidad de CONDUCTOR (distinta de "pendientes()", que es la validación de
+// identidad base) — pasajeros que ya tenían su cuenta aprobada y pidieron después, desde "Mi
+// perfil", poder publicar viajes también (ver server/routes/usuarios.js solicitarConductor()).
+async function pendientesConductor(req, res) {
+  const rows = await db.all(
+    "SELECT * FROM usuarios WHERE conductor_estado_validacion = 'pendiente' ORDER BY conductor_solicitado_at ASC"
+  );
+  ok(res, rows.map(usuarioPublico));
+}
+
+// Aprueba o rechaza un pedido de capacidad de conductor hecho desde "Mi perfil". A diferencia de
+// validar() (que es la validación de identidad de toda la cuenta), esto NO toca estado_validacion
+// ni motivo_rechazo — la cuenta ya estaba validada como usuario, esto solo habilita o no que
+// además pueda publicar viajes.
+async function validarConductor(req, res, params) {
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return badRequest(res, "JSON inválido");
+  }
+  if (!["aprobado", "rechazado"].includes(body.estado)) return badRequest(res, "Estado inválido");
+  const row = await db.get("SELECT * FROM usuarios WHERE id = ?", [params.id]);
+  if (!row) return notFound(res, "Usuario no encontrado");
+  if (row.conductor_estado_validacion !== "pendiente") {
+    return badRequest(res, "Este usuario no tiene un pedido de conductor pendiente de revisión.");
+  }
+  await db.run(
+    "UPDATE usuarios SET es_conductor = ?, conductor_estado_validacion = ?, conductor_motivo_rechazo = ? WHERE id = ?",
+    [body.estado === "aprobado" ? 1 : 0, body.estado, body.motivo || null, params.id]
+  );
   const actualizado = await db.get("SELECT * FROM usuarios WHERE id = ?", [params.id]);
   ok(res, usuarioPublico(actualizado));
 }
@@ -178,8 +237,12 @@ async function estadisticas(req, res) {
       db.get(`SELECT COUNT(*) AS c FROM reservas WHERE estado = 'completada' AND asistio = 1`),
       db.get(`SELECT COALESCE(SUM(asientos_reservados), 0) AS c FROM reservas WHERE estado = 'completada' AND asistio = 1`),
       db.get(`SELECT COALESCE(SUM(comision_plataforma), 0) AS c FROM reservas WHERE pagado = 1`),
-      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'conductor' AND estado_validacion = 'aprobado'`),
-      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'pasajero' AND estado_validacion = 'aprobado'`),
+      // Desde el 07 sep 2026 (rol dual): "conductoresAprobados" cuenta capacidad de conductor
+      // habilitada (es_conductor = 1), no el rol original de registro. "pasajerosAprobados" cuenta
+      // toda cuenta validada que no sea admin — la capacidad de pasajero no depende de ningún flag
+      // nuevo, cualquier cuenta aprobada (incluidos los conductores) puede reservar.
+      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE es_conductor = 1`),
+      db.get(`SELECT COUNT(*) AS c FROM usuarios WHERE estado_validacion = 'aprobado' AND rol != 'admin'`),
       db.get(`SELECT COUNT(*) AS c FROM reservas WHERE asistio = 0`),
       db.get(
         `SELECT COUNT(*) AS c, COALESCE(SUM(comision_plataforma), 0) AS monto FROM reservas WHERE asistio = 0 AND (reembolso_manual_realizado IS NULL OR reembolso_manual_realizado = 0)`
@@ -391,6 +454,8 @@ module.exports = {
   choferesStats,
   reactivarChofer,
   validar,
+  pendientesConductor,
+  validarConductor,
   resetearPassword,
   verConfig,
   actualizarConfig,

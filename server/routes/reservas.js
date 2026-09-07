@@ -76,7 +76,11 @@ async function crear(req, res) {
   if (viaje.estado !== "activo") return badRequest(res, "Este viaje ya no está disponible.");
 
   const pasajero = await db.get("SELECT * FROM usuarios WHERE id = ?", [body.pasajero_id]);
-  if (!pasajero || pasajero.rol !== "pasajero") return badRequest(res, "El usuario no es un pasajero registrado.");
+  // Desde el 07 sep 2026 (rol dual, a pedido del usuario: "que puedan ser conductores y
+  // pasajeros"): cualquier cuenta validada (incluidos los conductores) puede reservar un lugar
+  // como pasajero — ya tiene todos los datos que hacen falta (DNI, selfie, teléfono, email), no
+  // hace falta ningún trámite aparte. Solo se excluye a la cuenta admin.
+  if (!pasajero || pasajero.rol === "admin") return badRequest(res, "El usuario no puede reservar viajes.");
   if (pasajero.estado_validacion !== "aprobado") {
     return forbidden(
       res,

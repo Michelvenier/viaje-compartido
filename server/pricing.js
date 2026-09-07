@@ -88,6 +88,20 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
 //      curada), se estima como km × "peaje_por_km_estimado" (config) — Google Maps no informa costo
 //      real de peajes para pares fuera del corredor conocido, así que esto sigue siendo una
 //      aproximación de referencia.
+//   3. EXCEPCIÓN (07 sep 2026, a pedido explícito del usuario: "pero si voy por saladillo no tengo
+//      esos peajes!!"): si el par toca La Plata y la ciudad curada tiene una o más "variantes" de
+//      ruta cargadas (`server/corredor.js`, campo `variantes` de esa ciudad), y `ciudadesIntermedias`
+//      incluye la ciudad que identifica alguna de esas variantes (ej. "Saladillo"), se usa el km Y
+//      el peaje de ESA variante en vez del default de la ciudad — con prioridad absoluta, incluso
+//      por sobre Google Maps. Motivo: Google Maps calcula la distancia DIRECTA entre las dos
+//      ciudades nombradas (La Plata y el destino), sin ninguna noción de que el auto en realidad
+//      pasa por el medio por otra ciudad — así que ni su km ni (mucho menos) su estimación de peaje
+//      reflejan la ruta real que el conductor tildó/cargó como intermedia. Ver DISTANCIAS_DEFAULT en
+//      server/corredor.js para las variantes cargadas — por ahora solo Pehuajó tiene una (vía
+//      Saladillo, verificada contra Ruta0: La Plata-Saladillo 203 km/$1.500 + Saladillo-Pehuajó 236
+//      km/$0 = 439 km/$1.500 en total, contra 409 km/$27.806 de la autopista de referencia). El resto
+//      de las ciudades del corredor todavía no fueron auditadas para ver si tienen la misma
+//      alternativa — queda como gap conocido (ver claude/ruta-compartida-status.md).
 // `origenCoords`/`destinoCoords` (20 ago 2026, opcionales): {lat, lng} del lugar exacto que ya
 // resolvió el Autocomplete de Google Maps al elegir esa ciudad (ver server/maps.js
 // distanciaKmEntreCiudades para el motivo — nombres de ciudad ambiguos como "San Vicente" o
@@ -95,7 +109,7 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
 // usan para la llamada real a Google Maps cuando no hay nada cacheado todavía — el cache siempre
 // queda indexado por nombre de ciudad, no por coordenadas, así que no cambia nada de lo que ya
 // estaba cacheado.
-async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos, origenCoords, destinoCoords) {
+async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecidos, origenCoords, destinoCoords, ciudadesIntermedias = []) {
   const validado = validarCiudades(origenCiudad, destinoCiudad);
   if (validado.error) return { error: validado.error };
 
@@ -122,12 +136,25 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
     const distancias = await getDistanciasCorredor();
     const datos = distancias[otraCiudad];
     if (datos) {
-      peaje = datos.peaje;
-      // El km real de Google Maps (si lo hay) sigue teniendo prioridad sobre el km de la tabla
-      // curada — la tabla curada solo aporta el km como último recurso, si Google Maps no pudo
-      // resolverlo. El peaje, en cambio, siempre sale de la tabla curada cuando hay dato (línea de
-      // arriba) porque es más preciso que la estimación por km.
-      if (km == null) km = datos.km;
+      // Variante de ruta real (07 sep 2026, ver comentario grande de arriba) — si alguna de las
+      // ciudades intermedias que mandó el cliente coincide con la que identifica una variante
+      // cargada para esta ciudad (ej. "Saladillo" para Pehuajó), esa variante manda por sobre TODO
+      // lo demás (default de la tabla y Google Maps incluidos), porque es la única fuente que sabe
+      // que el auto pasa por el medio por otro lado.
+      const variante = Array.isArray(datos.variantes)
+        ? datos.variantes.find((v) => ciudadesIntermedias.includes(v.requiereCiudad))
+        : null;
+      if (variante) {
+        peaje = variante.peaje;
+        km = variante.km;
+      } else {
+        peaje = datos.peaje;
+        // El km real de Google Maps (si lo hay) sigue teniendo prioridad sobre el km de la tabla
+        // curada — la tabla curada solo aporta el km como último recurso, si Google Maps no pudo
+        // resolverlo. El peaje, en cambio, siempre sale de la tabla curada cuando hay dato (línea de
+        // arriba) porque es más preciso que la estimación por km.
+        if (km == null) km = datos.km;
+      }
     }
   }
 
@@ -153,15 +180,17 @@ async function calcularPorCiudades(origenCiudad, destinoCiudad, asientosOfrecido
 }
 
 async function calcularPrecioSugerido(distanciaKm, peajesTotal, asientosOfrecidos = 3) {
-  // La clave de config sigue llamándose "precio_nafta_super" por compatibilidad con el valor ya
-  // guardado en la base de producción (renombrar la clave forzaría a resembrarla y podría pisar el
-  // precio real que el admin ya cargó a mano) — pero desde el 21 ago 2026, a pedido del usuario
-  // ("que el calculo sea sobre nafta v power"), lo que representa este valor es el precio de
-  // referencia de Nafta V Power (la premium), no la Súper — así lo dice ahora el label en el panel
-  // admin ("Valores de referencia") y en Reglas de la Ruta. El NÚMERO en sí ($/litro) no se tocó acá
-  // porque es un precio real (ver la regla "OJO CON LOS PRECIOS" — nunca inventar valores de este
-  // tipo) — el admin tiene que actualizarlo a mano desde el panel si el $/litro de V Power es
-  // distinto al que ya estaba cargado como Súper.
+  // La clave de config se llama "precio_nafta_super" desde siempre. El 21 ago 2026 se había cambiado
+  // el LABEL (no el número) a "Nafta V Power", a pedido del usuario de ese momento ("que el calculo
+  // sea sobre nafta v power") — el 07 sep 2026, a pedido explícito del usuario ("Quiero el precio de
+  // nafta super, osea que los viajes se calculen con precio de super"), el label volvió a "Nafta
+  // Súper" en el panel admin ("Valores de referencia") y en Reglas de la Ruta, para que quede claro
+  // que el cálculo usa el precio de la nafta Súper (no la premium/V Power). El NÚMERO en sí
+  // ($/litro) NO se tocó en ninguno de los dos cambios — por la regla "OJO CON LOS PRECIOS" (nunca
+  // inventar/ajustar un valor de precio a partir de lo que dice el chat), el admin es quien tiene que
+  // cargar a mano, desde el panel, el $/litro real de la nafta Súper vigente si el valor guardado
+  // todavía refleja el precio de V Power (más caro) que se pudo haber cargado mientras el label decía
+  // eso.
   const precioNafta = await getConfig("precio_nafta_super");
   const consumoPor100km = await getConfig("consumo_litros_100km");
   const precioMinimoPorKm = (await getConfig("precio_minimo_por_km")) || 0;

@@ -103,16 +103,21 @@ const TERMINOS_SECTIONS = [
   {
     titulo: "7. Verificación documental que realiza Ruta Compartida",
     html: `
-      <p>Antes de habilitar una cuenta, un integrante del equipo de Ruta Compartida revisa manualmente la documentación cargada por el
-      usuario: DNI, una selfie de validación, y —para conductores— licencia de conducir, cédula del vehículo, póliza de seguro y
-      constancia de VTV vigente con su fecha de vencimiento.</p>
-      <p>Para que quede claro qué promete esta verificación y qué no: es una revisión humana de que los documentos existen, parecen
-      auténticos y están dentro de su fecha de vigencia declarada. <strong>No es</strong> una certificación pública de autenticidad, ni
-      una investigación de antecedentes, ni una evaluación psicológica, ni una inspección mecánica del vehículo, ni una garantía sobre
-      el comportamiento futuro de la persona. La selfie se compara manualmente con la foto del DNI por una persona del equipo — Ruta
-      Compartida <strong>no utiliza software de reconocimiento facial automatizado</strong> para esta verificación.</p>
-      <p>Que un perfil esté habilitado significa únicamente que superó estos controles documentales en ese momento. No es una
-      recomendación personal ni una garantía de que el viaje transcurrirá sin incidentes.</p>
+      <p>Para los conductores, antes de habilitar la cuenta un integrante del equipo de Ruta Compartida revisa manualmente la
+      documentación cargada: DNI, una selfie de validación, licencia de conducir, cédula del vehículo, póliza de seguro y constancia
+      de VTV vigente con su fecha de vencimiento.</p>
+      <p>Para los pasajeros, la cuenta se habilita automáticamente apenas se guardan el DNI y la selfie de validación cargados, sin
+      esperar una revisión manual previa — Ruta Compartida conserva esa documentación y puede revisarla en cualquier momento
+      (incluido después de habilitada la cuenta), por ejemplo ante un reporte o una sospecha de irregularidad, y puede suspender la
+      cuenta si corresponde.</p>
+      <p>Para que quede claro qué promete la revisión manual (conductores) y qué no: es una revisión humana de que los documentos
+      existen, parecen auténticos y están dentro de su fecha de vigencia declarada. <strong>No es</strong> una certificación pública
+      de autenticidad, ni una investigación de antecedentes, ni una evaluación psicológica, ni una inspección mecánica del vehículo,
+      ni una garantía sobre el comportamiento futuro de la persona. Cuando se compara una selfie con la foto del DNI, lo hace una
+      persona del equipo — Ruta Compartida <strong>no utiliza software de reconocimiento facial automatizado</strong> para esta
+      verificación.</p>
+      <p>Que un perfil esté habilitado significa únicamente que cargó (y, en el caso de los conductores, que superó la revisión de)
+      estos controles documentales. No es una recomendación personal ni una garantía de que el viaje transcurrirá sin incidentes.</p>
     `,
   },
   {
@@ -216,13 +221,16 @@ const REGLAS_SECTIONS = [
       <p>Es el usuario que necesita trasladarse y se suma al trayecto del conductor. Para habilitarse necesita:</p>
       <ul>
         <li>Nombre, apellido y DNI (frente y dorso).</li>
-        <li>Selfie de validación (la revisa manualmente nuestro equipo).</li>
+        <li>Selfie de validación.</li>
         <li>Celular verificado (usamos WhatsApp para avisos).</li>
         <li>Correo electrónico.</li>
       </ul>
-      <p>Revisamos cada perfil manualmente antes de habilitarlo. Es un proceso de reducción de riesgo, no una garantía sobre la
-      conducta de cada persona — para eso están también las calificaciones y el sentido común: coordiná el encuentro en un lugar
-      público y contale a alguien de confianza cuándo y con quién viajás.</p>
+      <p>El perfil de pasajero se habilita automáticamente apenas se guardan estas fotos y datos — sin esperar una revisión manual.
+      El conductor, en cambio, sí pasa por una revisión manual de su identidad y de la documentación de su vehículo antes de
+      habilitarse, como se explica arriba.</p>
+      <p>Que un perfil esté habilitado es un proceso de reducción de riesgo, no una garantía sobre la conducta de cada persona —
+      para eso están también las calificaciones y el sentido común: coordiná el encuentro en un lugar público y contale a alguien
+      de confianza cuándo y con quién viajás.</p>
     `,
   },
   {
@@ -291,7 +299,7 @@ const REGLAS_SECTIONS = [
       <p>El objetivo de este mecanismo es que el conductor recupere parte de <strong>lo que ese viaje le cuesta</strong>, nunca que
       genere una ganancia por llevar pasajeros.</p>
       <h4>Valor de referencia</h4>
-      <p>Tomamos un precio de referencia de la nafta V Power y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
+      <p>Tomamos un precio de referencia de la nafta Súper y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
       consumo estimado del vehículo (por defecto, 10 litros cada 100 km) y el piso mínimo por kilómetro mencionado abajo, están
       configurados desde el panel de administración y pueden actualizarse cuando cambien los costos reales del corredor.</p>
       <h4>Algoritmo</h4>
@@ -382,9 +390,11 @@ const PRIVACIDAD_SECTIONS = [
         <li><strong>Contraseña:</strong> se guarda con una técnica de hash (scrypt) que la vuelve irreversible — ni el equipo de Ruta
         Compartida puede ver la contraseña real de un usuario.</li>
       </ul>
-      <p>La selfie de validación se usa para que una persona del equipo la compare manualmente con la foto del DNI. <strong>No
-      utilizamos software de reconocimiento facial automatizado</strong> ni tratamos esa imagen como dato biométrico procesado por un
-      sistema; es una revisión humana puntual al momento de habilitar la cuenta.</p>
+      <p>Para conductores, la selfie de validación se usa para que una persona del equipo la compare manualmente con la foto del
+      DNI antes de habilitar la cuenta. Para pasajeros, la cuenta se habilita automáticamente apenas se guarda la selfie y el DNI
+      cargados, sin esperar esa revisión previa — igual se conserva la documentación y el equipo puede revisarla más adelante si
+      hace falta (por ejemplo ante un reporte). En ningún caso <strong>utilizamos software de reconocimiento facial
+      automatizado</strong> ni tratamos esa imagen como dato biométrico procesado por un sistema.</p>
     `,
   },
   {
@@ -508,7 +518,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Qué documentación me piden para registrarme?",
-    a: "A todos: DNI, selfie de validación, celular y email. A los conductores además: licencia de conducir, cédula verde/azul, seguro vigente y constancia de VTV con su fecha de vencimiento (no alcanza con declararlo). Revisamos cada perfil manualmente y avisamos por WhatsApp en menos de 24 hs.",
+    a: "A todos: DNI, selfie de validación, celular y email. A los conductores además: licencia de conducir, cédula verde/azul, seguro vigente y constancia de VTV con su fecha de vencimiento (no alcanza con declararlo). El perfil de pasajero se aprueba automáticamente apenas subís esas fotos. El de conductor lo revisamos manualmente y te avisamos por WhatsApp en menos de 24 hs.",
   },
   {
     q: "¿Puedo ver la foto, el auto o el teléfono del conductor antes de reservar?",

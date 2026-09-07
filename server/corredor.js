@@ -85,6 +85,18 @@ const CIUDADES_CORREDOR = [
 // Plata) Ruta0 devuelve una ruta distinta con peaje $29.306 — es una asimetría real del algoritmo de
 // ruteo de Ruta0, no un error de carga; se usa el valor de ida (La Plata → ciudad) para mantener el
 // mismo criterio que las otras 16 filas de esta tabla, todas consultadas en ese mismo sentido.
+// CUARTA CORRECCIÓN, 07 sep 2026 (a pedido explícito del usuario: "pero si voy por saladillo no
+// tengo esos peajes!!", después de confirmarle que el peaje de Pehuajó seguía siendo correcto para
+// la ruta de referencia): se agregó el campo opcional "variantes" — una ciudad puede tener, además
+// de su entrada default (la ruta "de referencia", la que se usó para verificar contra Ruta0), una
+// o más rutas alternativas reales con su propio km/peaje, identificadas por una ciudad intermedia
+// que el conductor tilda/carga (ver server/pricing.js calcularPorCiudades para cómo se elige la
+// variante). Pehuajó es la primera con una variante cargada: yendo por Saladillo (en vez de la
+// autopista por Hudson-Quilmes-Ituzaingó-Luján) el camino es ~30 km más largo pero el peaje baja de
+// $27.806 a solo $1.500 (verificado en Ruta0: La Plata→Saladillo 203 km/$1.500 + Saladillo→Pehuajó
+// 236 km/$0 peaje = 439 km/$1.500 en total). El resto de las ciudades del corredor todavía NO se
+// auditaron para ver si tienen la misma alternativa más barata por Saladillo — queda como gap
+// conocido (ver claude/ruta-compartida-status.md) hasta que se pida explícitamente revisarlas.
 const DISTANCIAS_DEFAULT = {
   "Chascomús": { km: 120, peaje: 7900 },
   "Rauch": { km: 190, peaje: 0 },
@@ -97,7 +109,16 @@ const DISTANCIAS_DEFAULT = {
   "Bragado": { km: 310, peaje: 26306 },
   "9 de Julio": { km: 350, peaje: 27806 },
   "Carlos Casares": { km: 380, peaje: 27806 },
-  "Pehuajó": { km: 420, peaje: 27806 },
+  "Pehuajó": {
+    km: 420,
+    peaje: 27806,
+    variantes: [
+      // Verificado en Ruta0 el 07 sep 2026: La Plata→Saladillo (203 km/$1.500, misma cabina de
+      // Uribelarrea que ya usan Saladillo/General Alvear/Bolívar) + Saladillo→Pehuajó (236 km, sin
+      // ninguna cabina de peaje) = 439 km/$1.500 en total, contra 409 km/$27.806 de la autopista.
+      { requiereCiudad: "Saladillo", nombre: "vía Saladillo", km: 439, peaje: 1500 },
+    ],
+  },
   "Trenque Lauquen": { km: 480, peaje: 29306 },
   "Santa Rosa": { km: 600, peaje: 4500 },
   "Saladillo": { km: 203, peaje: 1500 },

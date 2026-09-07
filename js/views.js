@@ -303,8 +303,8 @@ async function viewDetalle(app, params) {
     zona.innerHTML = `<div class="info-box">Para reservar necesitás <a href="#/login">iniciar sesión</a> o <a href="#/registro/pasajero">crear tu perfil de pasajero</a>.</div>`;
   } else if (user.id === viaje.conductor_id) {
     zona.innerHTML = `<div class="info-box">Este es tu viaje publicado. Gestioná las solicitudes desde <a href="#/mis-viajes">Mis viajes</a>.</div>`;
-  } else if (user.rol !== "pasajero") {
-    zona.innerHTML = `<div class="info-box">Solo los perfiles de pasajero pueden reservar un lugar.</div>`;
+  } else if (user.rol === "admin") {
+    zona.innerHTML = `<div class="info-box">Las cuentas de administrador no pueden reservar viajes.</div>`;
   } else if (user.estado_validacion !== "aprobado") {
     zona.innerHTML = `<div class="info-box">Tu perfil todavía está en revisión manual. Te avisamos por WhatsApp en menos de 24 hs.</div>`;
   } else {
@@ -486,12 +486,54 @@ async function viewDetalle(app, params) {
 // ---------------------------------------------------------------------------
 function viewPublicar(app) {
   const user = Session.get();
-  if (!user || user.rol !== "conductor") {
+  if (!user) {
     app.innerHTML = `<div class="container-narrow"><div class="card">
       <h2>Publicá tu viaje</h2>
       <p>Para publicar un viaje necesitás un perfil de conductor validado.</p>
       <a href="#/registro/conductor" class="btn btn-teal">Registrarme como conductor</a>
-      ${!user ? `<p class="muted" style="margin-top:10px">¿Ya tenés cuenta? <a href="#/login">Iniciá sesión</a></p>` : ""}
+      <p class="muted" style="margin-top:10px">¿Ya tenés cuenta? <a href="#/login">Iniciá sesión</a></p>
+    </div></div>`;
+    return;
+  }
+  // Desde el 07 sep 2026 (rol dual, a pedido del usuario): publicar viajes ya no depende del rol
+  // original de registro ("conductor") sino de "es_conductor" — que se habilita aprobando la
+  // documentación de conductor, sea que se cargó al registrarse o después desde "Mi perfil".
+  if (!user.es_conductor) {
+    if (user.rol === "admin") {
+      app.innerHTML = `<div class="container-narrow"><div class="card">
+        <h2>Publicá tu viaje</h2>
+        <div class="info-box">Las cuentas de administrador no pueden publicar viajes.</div>
+      </div></div>`;
+      return;
+    }
+    if (user.conductor_estado_validacion === "pendiente") {
+      app.innerHTML = `<div class="container-narrow"><div class="card">
+        <h2>Tu pedido está en revisión</h2>
+        <div class="info-box">Ya recibimos tu documentación de conductor y la estamos revisando. Te avisamos por WhatsApp en menos de 24 hs
+        cuando puedas empezar a publicar viajes.</div>
+      </div></div>`;
+      return;
+    }
+    if (user.conductor_estado_validacion === "rechazado") {
+      app.innerHTML = `<div class="container-narrow"><div class="card">
+        <h2>Publicá tu viaje</h2>
+        <div class="info-box">Tu pedido para publicar viajes como conductor fue rechazado${user.conductor_motivo_rechazo ? `: ${escapeHtml(user.conductor_motivo_rechazo)}` : "."}</div>
+        <a href="#/perfil" class="btn btn-teal" style="margin-top:10px">Volver a intentar desde Mi perfil</a>
+      </div></div>`;
+      return;
+    }
+    if (user.rol === "conductor" && user.estado_validacion !== "aprobado") {
+      app.innerHTML = `<div class="container-narrow"><div class="card">
+        <h2>Tu perfil está en revisión</h2>
+        <div class="info-box">Revisamos manualmente la documentación de cada perfil antes de habilitarlo, como parte de nuestro proceso de
+        validación. Te avisamos por WhatsApp en menos de 24 hs cuando estés habilitado para publicar viajes.</div>
+      </div></div>`;
+      return;
+    }
+    app.innerHTML = `<div class="container-narrow"><div class="card">
+      <h2>Publicá tu viaje</h2>
+      <p>Para publicar un viaje necesitás habilitar tu cuenta como conductor (licencia, cédula, seguro, VTV y datos del auto).</p>
+      <a href="#/perfil" class="btn btn-teal">Solicitarlo desde Mi perfil</a>
     </div></div>`;
     return;
   }
@@ -1005,6 +1047,12 @@ function viewPublicar(app) {
         asientos_totales: Number(fd.get("asientos_totales")) || 3,
         origen_coords: ciudadesCoords.origen_ciudad || null,
         destino_coords: ciudadesCoords.destino_ciudad || null,
+        // 07 sep 2026, a pedido del usuario ("si voy por Saladillo no tengo esos peajes"): se manda
+        // también la lista de ciudades intermedias ya elegidas, para que el servidor pueda usar el
+        // peaje/km de una ruta alternativa real y verificada (ver server/corredor.js "variantes")
+        // en vez del peaje de referencia de la autopista — así la vista previa del precio, mientras
+        // se completa el formulario, ya refleja la ruta real que va a hacer el conductor.
+        ciudades_intermedias: ciudadesIntermediasElegidas(),
       });
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
@@ -1335,7 +1383,15 @@ function viewRegistro(app, params) {
               ${step === totalSteps ? "Enviar mi perfil" : "Siguiente"}
             </button>
           </div>
-          ${step === totalSteps ? `<p class="muted" style="margin-top:10px">Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs.</p>${ayudaWsp()}` : ayudaWsp()}
+          ${
+            step === totalSteps
+              ? `<p class="muted" style="margin-top:10px">${
+                  rol === "conductor"
+                    ? "Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs."
+                    : "Tu perfil de pasajero queda aprobado automáticamente con las fotos que subas — vas a poder buscar y reservar viajes apenas termines este paso."
+                }</p>${ayudaWsp()}`
+              : ayudaWsp()
+          }
         </div>
       </div>`;
 
@@ -1527,7 +1583,11 @@ function viewLogin(app) {
 }
 
 // ---------------------------------------------------------------------------
-// MIS VIAJES — panel según rol (conductor: viajes publicados + solicitudes; pasajero: reservas)
+// MIS VIAJES — panel según capacidad de la cuenta (conductor: viajes publicados + solicitudes;
+// pasajero: reservas). Desde el 07 sep 2026 (rol dual, a pedido del usuario: "todo visible a la
+// vez"), una cuenta con capacidad de conductor ve las DOS cosas a la vez en pestañas, en vez de
+// mostrar una sola cosa según el rol original — cualquier cuenta no-admin siempre tiene capacidad
+// de pasajero, así que la pestaña de reservas está siempre disponible para quien tiene ambas.
 // ---------------------------------------------------------------------------
 async function viewMisViajes(app) {
   const user = Session.get();
@@ -1542,22 +1602,63 @@ async function viewMisViajes(app) {
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando...</p></div>`;
 
-  if (user.rol === "conductor") {
+  // "user.rol === 'conductor'" cubre también a quien se registró como conductor y todavía está
+  // esperando la validación (para que vea igual el panel de "Mis viajes publicados", vacío, como
+  // pasaba antes de esta fecha) — no solo a quien ya tiene es_conductor = 1.
+  const tieneCapacidadConductor = !!user.es_conductor || user.rol === "conductor";
+
+  if (!tieneCapacidadConductor) {
+    app.innerHTML = `<div class="container" id="mis-viajes-pasajero-root"></div>`;
+    await renderMisViajesPasajero(app.querySelector("#mis-viajes-pasajero-root"), user);
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="container">
+      <div class="section-title" style="text-align:left;margin-top:10px"><h2>Mis viajes</h2></div>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <button type="button" class="btn btn-teal btn-sm" data-subtab="publicados">Publicados</button>
+        <button type="button" class="btn btn-outline btn-sm" data-subtab="reservas">Reservas</button>
+      </div>
+      <div id="subtab-publicados"></div>
+      <div id="subtab-reservas" style="display:none"></div>
+    </div>`;
+
+  const btnPublicados = app.querySelector('[data-subtab="publicados"]');
+  const btnReservas = app.querySelector('[data-subtab="reservas"]');
+  const contPublicados = app.querySelector("#subtab-publicados");
+  const contReservas = app.querySelector("#subtab-reservas");
+
+  function mostrarSubtab(cual) {
+    contPublicados.style.display = cual === "publicados" ? "" : "none";
+    contReservas.style.display = cual === "reservas" ? "" : "none";
+    btnPublicados.className = cual === "publicados" ? "btn btn-teal btn-sm" : "btn btn-outline btn-sm";
+    btnReservas.className = cual === "reservas" ? "btn btn-teal btn-sm" : "btn btn-outline btn-sm";
+    if (cual === "reservas" && !contReservas.dataset.cargado) {
+      contReservas.dataset.cargado = "1";
+      contReservas.innerHTML = `<p class="muted">Cargando...</p>`;
+      renderMisViajesPasajero(contReservas, user);
+    }
+  }
+  btnPublicados.addEventListener("click", () => mostrarSubtab("publicados"));
+  btnReservas.addEventListener("click", () => mostrarSubtab("reservas"));
+
+  contPublicados.innerHTML = `<p class="muted">Cargando...</p>`;
+  await renderMisViajesConductor(contPublicados, user);
+}
+
+async function renderMisViajesConductor(app, user) {
+  {
     let viajes;
     try {
       viajes = await Api.get(`/api/viajes/conductor/${user.id}`);
     } catch (err) {
-      app.innerHTML = `<div class="container"><div class="error-box">${escapeHtml(err.message)}</div></div>`;
+      app.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
       return;
     }
     app.innerHTML = `
-      <div class="container">
-        <div class="section-title" style="text-align:left;margin-top:10px">
-          <h2>Mis viajes publicados</h2>
-        </div>
-        <a href="#/publicar" class="btn btn-primary" style="margin-bottom:18px;display:inline-block">+ Publicar nuevo viaje</a>
-        <div id="lista-viajes-conductor"></div>
-      </div>`;
+      <a href="#/publicar" class="btn btn-primary" style="margin-bottom:18px;display:inline-block">+ Publicar nuevo viaje</a>
+      <div id="lista-viajes-conductor"></div>`;
     const cont = app.querySelector("#lista-viajes-conductor");
     if (viajes.length === 0) {
       cont.innerHTML = `<div class="empty-state"><div class="big">🗺️</div><p>Todavía no publicaste ningún viaje.</p></div>`;
@@ -1604,27 +1705,28 @@ async function viewMisViajes(app) {
         try {
           await Api.del(`/api/viajes/${btn.dataset.cancelarViaje}`);
           toast("Viaje cancelado", "success");
-          viewMisViajes(app);
+          viewMisViajes(document.getElementById("app"));
         } catch (err) {
           toast(err.message, "error");
         }
       });
     });
-  } else {
-    // Pasajero
+  }
+}
+
+async function renderMisViajesPasajero(app, user) {
+  {
     let reservas;
     try {
       reservas = await Api.get(`/api/reservas/pasajero/${user.id}`);
     } catch (err) {
-      app.innerHTML = `<div class="container"><div class="error-box">${escapeHtml(err.message)}</div></div>`;
+      app.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
       return;
     }
     app.innerHTML = `
-      <div class="container">
-        <div class="section-title" style="text-align:left;margin-top:10px"><h2>Mis reservas</h2></div>
-        <a href="#/buscar" class="btn btn-primary" style="margin-bottom:18px;display:inline-block">Buscar un viaje</a>
-        <div id="lista-reservas-pasajero"></div>
-      </div>`;
+      <div class="section-title" style="text-align:left;margin-top:10px"><h2>Mis reservas</h2></div>
+      <a href="#/buscar" class="btn btn-primary" style="margin-bottom:18px;display:inline-block">Buscar un viaje</a>
+      <div id="lista-reservas-pasajero"></div>`;
     const cont = app.querySelector("#lista-reservas-pasajero");
     if (reservas.length === 0) {
       cont.innerHTML = `<div class="empty-state"><div class="big">🧳</div><p>Todavía no reservaste ningún viaje.</p></div>`;
@@ -1705,7 +1807,7 @@ async function viewMisViajes(app) {
         try {
           const resp = await Api.patch(`/api/reservas/${btn.dataset.cancelarReserva}`, { estado: "cancelada" });
           toast(resp.mensaje || "Reserva cancelada", "success");
-          viewMisViajes(app);
+          viewMisViajes(document.getElementById("app"));
         } catch (err) {
           toast(err.message, "error");
         }
@@ -2055,7 +2157,12 @@ function documentosUsuarioToggleHtml(u) {
     botonVerDocumento(u.doc_dni_dorso, "DNI dorso"),
     botonVerDocumento(u.doc_selfie, "Selfie"),
   ];
-  if (u.rol === "conductor") {
+  // Desde el 07 sep 2026 (rol dual): se muestran los documentos de conductor no solo si la cuenta
+  // se registró originalmente como conductor, sino también si en algún momento pidió la
+  // capacidad de conductor desde "Mi perfil" (es_conductor = 1, o un pedido pendiente/rechazado
+  // con conductor_estado_validacion seteado) — para que el admin pueda revisarlos en cualquiera
+  // de los dos casos.
+  if (u.rol === "conductor" || u.es_conductor || u.conductor_estado_validacion != null) {
     botones.push(
       u.doc_licencia_frente || u.doc_licencia_dorso
         ? `${botonVerDocumento(u.doc_licencia_frente, "Licencia frente")}${botonVerDocumento(u.doc_licencia_dorso, "Licencia dorso")}`
@@ -2091,18 +2198,23 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes;
+  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor;
   try {
-    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes] = await Promise.all([
-      Api.get("/api/admin/pendientes"),
-      Api.get("/api/admin/config"),
-      Api.get("/api/admin/estadisticas"),
-      Api.get("/api/admin/reembolsos-pendientes"),
-      Api.get("/api/admin/cuenta-corriente-pendientes"),
-      Api.get("/api/admin/usuarios"),
-      Api.get("/api/admin/choferes"),
-      Api.get("/api/admin/pagos-pendientes"),
-    ]);
+    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor] =
+      await Promise.all([
+        Api.get("/api/admin/pendientes"),
+        Api.get("/api/admin/config"),
+        Api.get("/api/admin/estadisticas"),
+        Api.get("/api/admin/reembolsos-pendientes"),
+        Api.get("/api/admin/cuenta-corriente-pendientes"),
+        Api.get("/api/admin/usuarios"),
+        Api.get("/api/admin/choferes"),
+        Api.get("/api/admin/pagos-pendientes"),
+        // Desde el 07 sep 2026 (rol dual): pedidos de capacidad de conductor hechos desde "Mi
+        // perfil" por cuentas que ya estaban validadas como pasajero — distintos de "pendientes"
+        // (que es la validación de identidad de una cuenta recién registrada).
+        Api.get("/api/admin/pendientes-conductor"),
+      ]);
   } catch (e) {
     if (e.status === 403) {
       Session.clear();
@@ -2220,6 +2332,8 @@ async function viewAdmin(app) {
 
       <div class="card" style="margin-bottom:20px">
         <h3>Validaciones pendientes (${pendientes.length})</h3>
+        <p class="muted">Desde el 07 sep 2026, los pasajeros se aprueban solos con las fotos que suben — acá solo van a aparecer
+        conductores esperando la revisión de su identidad y documentación de vehículo.</p>
         ${
           pendientes.length === 0
             ? `<p class="muted">No hay perfiles esperando revisión. 🎉</p>`
@@ -2263,6 +2377,50 @@ async function viewAdmin(app) {
                 <td>
                   <button class="btn btn-teal btn-sm" data-aprobar="${u.id}">Aprobar</button>
                   <button class="btn btn-outline danger btn-sm" data-rechazar-usuario="${u.id}">Rechazar</button>
+                </td>
+              </tr>`
+                )
+                .join("")}
+            </tbody></table>`
+        }
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3>Pedidos de capacidad de conductor (${pendientesConductor.length})</h3>
+        <p class="muted">Cuentas ya validadas (como pasajero) que pidieron desde "Mi perfil" poder publicar viajes también.</p>
+        ${
+          pendientesConductor.length === 0
+            ? `<p class="muted">No hay pedidos esperando revisión.</p>`
+            : `<table class="admin-table"><thead><tr><th>Nombre</th><th>Email</th><th>Documentos</th><th>Acción</th></tr></thead><tbody>
+              ${pendientesConductor
+                .map(
+                  (u) => `<tr>
+                <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
+                <td>${escapeHtml(u.email)}</td>
+                <td>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    ${
+                      u.doc_licencia_frente || u.doc_licencia_dorso
+                        ? `${botonVerDocumento(u.doc_licencia_frente, "Licencia frente")}${botonVerDocumento(u.doc_licencia_dorso, "Licencia dorso")}`
+                        : botonVerDocumento(u.doc_licencia, "Licencia")
+                    }
+                    ${
+                      u.doc_cedula_frente || u.doc_cedula_dorso
+                        ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
+                        : botonVerDocumento(u.doc_cedula, "Cédula")
+                    }
+                    ${botonVerDocumento(u.doc_seguro, "Seguro")}
+                  </div>
+                  ${
+                    u.doc_vtv
+                      ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span> ${botonVerDocumento(u.doc_vtv, "VTV")}`
+                      : `<br><span style="color:#b00020;font-weight:600">Sin constancia de VTV</span>`
+                  }
+                  <br><span class="muted" style="font-size:0.78rem">${escapeHtml(u.vehiculo_marca || "")} ${escapeHtml(u.vehiculo_modelo || "")}${u.vehiculo_patente ? " · " + escapeHtml(u.vehiculo_patente) : ""}</span>
+                </td>
+                <td>
+                  <button class="btn btn-teal btn-sm" data-aprobar-conductor="${u.id}">Aprobar</button>
+                  <button class="btn btn-outline danger btn-sm" data-rechazar-conductor="${u.id}">Rechazar</button>
                 </td>
               </tr>`
                 )
@@ -2324,16 +2482,22 @@ async function viewAdmin(app) {
             ${usuarios
               .map((u) => {
                 const valoracion = Number(u.rating_count) > 0 ? `★ ${u.rating_promedio} <span class="muted">(${u.rating_count})</span>` : '<span class="muted">Sin calificaciones</span>';
-                let cuenta = '<span class="muted">-</span>';
-                if (u.rol === "conductor" && Number(u.saldo_deudor) > 0) {
-                  cuenta = `<span style="color:#b00020;font-weight:600">Debe ${fmtMoney(u.saldo_deudor)}</span>`;
-                } else if (u.rol === "pasajero" && Number(u.no_show_count) > 0) {
-                  cuenta = `<span style="color:#b00020;font-weight:600">${u.no_show_count} inasistencia(s)</span>`;
+                // Desde el 07 sep 2026 (rol dual): la deuda de cuenta corriente y las inasistencias
+                // ya no dependen del rol original de registro sino de la capacidad real que tiene
+                // hoy la cuenta (es_conductor puede deber; cualquier cuenta no-admin puede tener
+                // inasistencias como pasajero) — se muestran las dos juntas si aplican ambas.
+                const partesCuenta = [];
+                if (u.es_conductor && Number(u.saldo_deudor) > 0) {
+                  partesCuenta.push(`<span style="color:#b00020;font-weight:600">Debe ${fmtMoney(u.saldo_deudor)}</span>`);
                 }
+                if (u.rol !== "admin" && Number(u.no_show_count) > 0) {
+                  partesCuenta.push(`<span style="color:#b00020;font-weight:600">${u.no_show_count} inasistencia(s)</span>`);
+                }
+                const cuenta = partesCuenta.length ? partesCuenta.join("<br>") : '<span class="muted">-</span>';
                 const alta = u.created_at ? fmtFecha(u.created_at.slice(0, 10)) : "-";
                 return `<tr data-usuario-fila="${u.id}" data-usuario-busqueda="${escapeHtml((u.nombre + " " + u.apellido + " " + u.email + " " + (u.telefono || "")).toLowerCase())}">
               <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
-              <td>${u.rol}</td>
+              <td>${u.rol}${u.es_conductor && u.rol !== "conductor" ? ' <span class="muted" style="font-size:0.78rem">(+ conductor)</span>' : ""}</td>
               <td>${escapeHtml(u.email)}</td>
               <td>${escapeHtml(u.telefono || "-")}</td>
               <td><span class="status-pill ${u.estado_validacion}">${u.rol === "admin" ? "-" : u.estado_validacion}</span></td>
@@ -2353,7 +2517,7 @@ async function viewAdmin(app) {
         <h3>Valores de referencia (actualización quincenal/mensual)</h3>
         <p class="muted">Estos valores alimentan el algoritmo de cálculo de precio (Reglas de la Ruta, punto 3).</p>
         <form id="form-config" class="grid-2">
-          <div class="field"><label>Precio nafta V Power ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
+          <div class="field"><label>Precio nafta Súper ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
           <div class="field"><label>Comisión de la plataforma (%)</label><input type="number" name="comision_plataforma_pct" value="${config.comision_plataforma_pct}"></div>
           <div class="field"><label>Comisión mínima ($)</label><input type="number" name="comision_minima" value="${config.comision_minima}"></div>
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
@@ -2513,6 +2677,21 @@ async function viewAdmin(app) {
       viewAdmin(app);
     })
   );
+  app.querySelectorAll("[data-aprobar-conductor]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      await Api.patch(`/api/admin/validar-conductor/${btn.dataset.aprobarConductor}`, { estado: "aprobado" });
+      toast("Pedido de conductor aprobado", "success");
+      viewAdmin(app);
+    })
+  );
+  app.querySelectorAll("[data-rechazar-conductor]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const motivo = prompt("Motivo del rechazo (se le mostrará al usuario):") || "";
+      await Api.patch(`/api/admin/validar-conductor/${btn.dataset.rechazarConductor}`, { estado: "rechazado", motivo });
+      toast("Pedido de conductor rechazado", "info");
+      viewAdmin(app);
+    })
+  );
   app.querySelector("#buscar-usuario").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
     app.querySelectorAll("[data-usuario-fila]").forEach((fila) => {
@@ -2552,7 +2731,19 @@ async function viewAdmin(app) {
   });
   app.querySelector("#form-distancias").addEventListener("submit", async (e) => {
     e.preventDefault();
+    // 07 sep 2026: este formulario solo tiene campos de km/peaje por ciudad — antes de este cambio,
+    // cada envío reconstruía distancias_corredor DE CERO con solo esos dos campos, así que si
+    // alguna ciudad tenía datos extra guardados aparte de km/peaje (ej. "variantes" de ruta
+    // alternativa, ver server/corredor.js y server/pricing.js, a pedido del usuario "si voy por
+    // saladillo no tengo esos peajes"), este guardado los borraba en silencio sin que nadie lo
+    // pidiera. Ahora se arranca cada ciudad con una copia de lo que ya tenía cargado (`distancias`,
+    // la config ya mergeada que se usó para pintar esta misma tabla) y encima se pisan km/peaje con
+    // lo que haya en el formulario — así cualquier campo extra que no tenga input en esta pantalla
+    // se preserva tal cual estaba.
     const nuevasDistancias = {};
+    for (const [ciudad, datos] of Object.entries(distancias)) {
+      nuevasDistancias[ciudad] = { ...datos };
+    }
     app.querySelectorAll("[data-distancia-km]").forEach((input) => {
       const ciudad = input.dataset.distanciaKm;
       nuevasDistancias[ciudad] = nuevasDistancias[ciudad] || {};
@@ -2604,6 +2795,72 @@ function renderVehiculoEditable(fresco) {
     </div>`;
 }
 
+// Rol dual (07 sep 2026, a pedido del usuario: "que puedan ser conductores y pasajeros") — botón
+// nuevo en "Mi perfil" (a diferencia del wizard de registro) para que una cuenta que ya está
+// validada como pasajero pueda cargar después la documentación de conductor y habilitar publicar
+// viajes también, sin tener que crear una cuenta nueva. Mismos campos que el paso 2/3 del registro
+// de conductor (ver viewRegistro más arriba) — ver server/routes/usuarios.js solicitarConductor().
+// Solo se muestra a cuentas que se registraron originalmente como pasajero (rol === "pasajero"):
+// una cuenta que se registró como conductor y todavía está esperando su validación de identidad ya
+// tiene su propio mensaje de "en revisión" en #/publicar, no hace falta este botón para esa.
+function renderSolicitudConductorHtml(fresco) {
+  if (fresco.conductor_estado_validacion === "pendiente") {
+    return `
+      <div class="field" style="margin-top:10px;border-top:1px solid var(--border);padding-top:14px">
+        <label>Publicar viajes como conductor</label>
+        <div class="info-box">⏳ Ya recibimos tu documentación de conductor y la estamos revisando. Te avisamos por WhatsApp en menos
+        de 24 hs cuando puedas empezar a publicar viajes.</div>
+      </div>`;
+  }
+  const rechazado = fresco.conductor_estado_validacion === "rechazado";
+  return `
+    <div class="field" style="margin-top:10px;border-top:1px solid var(--border);padding-top:14px">
+      <label>Publicar viajes como conductor</label>
+      ${
+        rechazado
+          ? `<div class="error-box" style="margin-bottom:10px">Tu pedido anterior fue rechazado${fresco.conductor_motivo_rechazo ? `: ${escapeHtml(fresco.conductor_motivo_rechazo)}` : "."} Podés volver a intentarlo con la documentación corregida.</div>`
+          : `<p class="muted">Además de reservar como pasajero, podés habilitar tu cuenta para publicar viajes — necesitamos tu
+             licencia, cédula, seguro, VTV y los datos de tu auto.</p>`
+      }
+      <button type="button" class="btn btn-teal" id="btn-abrir-solicitud-conductor">${rechazado ? "Volver a solicitarlo" : "Quiero publicar viajes también"}</button>
+      <div id="form-solicitud-conductor" hidden style="margin-top:14px">
+        ${renderUploadField("doc_licencia_frente", "Licencia de conducir (frente)")}
+        ${renderUploadField("doc_licencia_dorso", "Licencia de conducir (dorso)")}
+        ${renderUploadField("doc_cedula_frente", "Cédula verde / azul (frente)")}
+        ${renderUploadField("doc_cedula_dorso", "Cédula verde / azul (dorso)")}
+        ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de la tarjeta de seguro que te pide la caminera en cualquier control de ruta.")}
+        ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
+        <div class="field">
+          <label>Fecha de vencimiento de la VTV</label>
+          <input type="date" id="f-solconductor-vtv-vencimiento">
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Marca</label><input type="text" id="f-solconductor-marca" placeholder="Ej: Renault"></div>
+          <div class="field"><label>Modelo</label><input type="text" id="f-solconductor-modelo" placeholder="Ej: Sandero"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Color</label><input type="text" id="f-solconductor-color"></div>
+          <div class="field"><label>Patente</label><input type="text" id="f-solconductor-patente" placeholder="Solo para control interno"></div>
+        </div>
+        ${renderUploadField("vehiculo_foto", "Foto del auto", "Para que tus pasajeros te encuentren fácil en la plaza o la estación.")}
+        <div class="field"><label>Cantidad de asientos disponibles</label>
+          <select id="f-solconductor-asientos">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3" selected>3 (recomendado, viajan cómodos atrás)</option>
+          </select>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-solconductor-carpooling">
+          <label for="f-solconductor-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte
+          de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
+        </div>
+        <div id="solicitud-conductor-error"></div>
+        <button type="button" class="btn btn-primary" id="btn-enviar-solicitud-conductor" style="margin-top:8px">Enviar documentación</button>
+      </div>
+    </div>`;
+}
+
 async function viewPerfil(app) {
   const user = Session.get();
   if (!user) {
@@ -2627,14 +2884,23 @@ async function viewPerfil(app) {
           </div>
         </div>
         ${fresco.estado_validacion === "rechazado" && fresco.motivo_rechazo ? `<div class="error-box" style="margin-top:14px">Motivo: ${escapeHtml(fresco.motivo_rechazo)}</div>` : ""}
-        <p style="margin-top:14px"><strong>Email:</strong> ${escapeHtml(fresco.email)}<br><strong>Celular:</strong> ${escapeHtml(fresco.telefono || "-")}</p>
+        <div class="field" style="margin-top:14px">
+          <label>Email</label>
+          <input type="email" id="f-perfil-email" value="${escapeHtml(fresco.email)}">
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Celular</label><input type="text" id="f-perfil-telefono" value="${escapeHtml(fresco.telefono || "")}"></div>
+          <div class="field"><label>Domicilio</label><input type="text" id="f-perfil-domicilio" value="${escapeHtml(fresco.domicilio || "")}"></div>
+        </div>
+        <div id="perfil-contacto-error"></div>
+        <button class="btn btn-outline" id="btn-guardar-contacto">Guardar datos de contacto</button>
         <div style="margin-top:10px">
           ${generoFieldHtml(fresco.genero)}
           <button class="btn btn-outline" id="btn-guardar-genero">Guardar</button>
         </div>
-        ${fresco.rol === "conductor" ? renderVehiculoEditable(fresco) : ""}
+        ${fresco.es_conductor ? renderVehiculoEditable(fresco) : ""}
         ${
-          fresco.rol === "pasajero"
+          fresco.rol !== "admin"
             ? `<div class="field" style="margin-top:10px">
                 <label>Alias de Mercado Pago (o CBU/CVU) para reembolsos</label>
                 <div class="field-row">
@@ -2647,11 +2913,12 @@ async function viewPerfil(app) {
             : ""
         }
         ${
-          fresco.rol === "pasajero" && Number(fresco.no_show_count) > 0
+          fresco.rol !== "admin" && Number(fresco.no_show_count) > 0
             ? `<div class="info-box" style="margin-top:10px">⚠️ Tenés ${fresco.no_show_count} inasistencia(s) reportada(s) por conductores. Si creés que alguna está mal reportada, <a href="https://wa.me/5492396629101" target="_blank" rel="noopener">escribinos por WhatsApp</a>.</div>`
             : ""
         }
-        ${fresco.rol === "conductor" ? `<div id="cuenta-corriente-wrap"></div>` : ""}
+        ${fresco.es_conductor ? `<div id="cuenta-corriente-wrap"></div>` : ""}
+        ${!fresco.es_conductor && fresco.rol === "pasajero" ? renderSolicitudConductorHtml(fresco) : ""}
         <div class="field" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
           <label>Cambiar contraseña</label>
           <div class="field-row">
@@ -2661,13 +2928,77 @@ async function viewPerfil(app) {
           <button class="btn btn-outline" id="btn-guardar-password" style="margin-top:8px">Actualizar contraseña</button>
           <small class="hint">Mínimo 8 caracteres.</small>
         </div>
-        <a href="#/mis-viajes" class="btn btn-teal" style="margin-top:10px">Ir a ${fresco.rol === "conductor" ? "mis viajes publicados" : "mis reservas"}</a>
+        <a href="#/mis-viajes" class="btn btn-teal" style="margin-top:10px">Ir a ${fresco.es_conductor || fresco.rol === "conductor" ? "mis viajes" : "mis reservas"}</a>
       </div>
     </div>`;
-  if (fresco.rol === "conductor") renderCuentaCorriente(app, fresco);
+  if (fresco.es_conductor) renderCuentaCorriente(app, fresco);
+  wireUploads(app);
+  app.querySelector("#btn-guardar-contacto").addEventListener("click", async () => {
+    const errEl = app.querySelector("#perfil-contacto-error");
+    errEl.innerHTML = "";
+    const email = app.querySelector("#f-perfil-email").value.trim();
+    const telefono = app.querySelector("#f-perfil-telefono").value.trim();
+    const domicilio = app.querySelector("#f-perfil-domicilio").value.trim();
+    if (!email) {
+      errEl.innerHTML = `<div class="error-box">El email no puede quedar vacío.</div>`;
+      return;
+    }
+    try {
+      const actualizado = await Api.patch(`/api/usuarios/${fresco.id}`, { email, telefono, domicilio });
+      if (fresco.adminToken) actualizado.adminToken = fresco.adminToken;
+      Session.set(actualizado);
+      toast("Datos de contacto actualizados", "success");
+      viewPerfil(app);
+    } catch (err) {
+      errEl.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  });
+  const btnAbrirSolicitud = app.querySelector("#btn-abrir-solicitud-conductor");
+  if (btnAbrirSolicitud) {
+    btnAbrirSolicitud.addEventListener("click", () => {
+      app.querySelector("#form-solicitud-conductor").hidden = false;
+      btnAbrirSolicitud.hidden = true;
+    });
+  }
+  const btnEnviarSolicitud = app.querySelector("#btn-enviar-solicitud-conductor");
+  if (btnEnviarSolicitud) {
+    btnEnviarSolicitud.addEventListener("click", async () => {
+      const q = (id) => app.querySelector(id);
+      const getUpload = (name) => app.querySelector(`[data-upload-hidden="${name}"]`)?.value;
+      const errEl = app.querySelector("#solicitud-conductor-error");
+      errEl.innerHTML = "";
+      if (!q("#f-solconductor-carpooling").checked) {
+        errEl.innerHTML = `<div class="error-box">Tenés que confirmar la cobertura del seguro para carpooling antes de continuar.</div>`;
+        return;
+      }
+      const body = {
+        doc_licencia_frente: getUpload("doc_licencia_frente"),
+        doc_licencia_dorso: getUpload("doc_licencia_dorso"),
+        doc_cedula_frente: getUpload("doc_cedula_frente"),
+        doc_cedula_dorso: getUpload("doc_cedula_dorso"),
+        doc_seguro: getUpload("doc_seguro"),
+        doc_vtv: getUpload("doc_vtv"),
+        vtv_vencimiento: q("#f-solconductor-vtv-vencimiento").value,
+        vehiculo_marca: q("#f-solconductor-marca").value,
+        vehiculo_modelo: q("#f-solconductor-modelo").value,
+        vehiculo_color: q("#f-solconductor-color").value,
+        vehiculo_patente: q("#f-solconductor-patente").value,
+        vehiculo_foto: getUpload("vehiculo_foto"),
+        vehiculo_asientos: Number(q("#f-solconductor-asientos").value) || 3,
+      };
+      try {
+        const resp = await Api.post(`/api/usuarios/${fresco.id}/solicitar-conductor`, body);
+        if (fresco.adminToken) resp.usuario.adminToken = fresco.adminToken;
+        Session.set(resp.usuario);
+        toast(resp.mensaje, "success");
+        viewPerfil(app);
+      } catch (err) {
+        errEl.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+      }
+    });
+  }
   const btnVehiculo = app.querySelector("#btn-guardar-vehiculo");
   if (btnVehiculo) {
-    wireUploads(app);
     // Precarga el campo oculto con la foto que ya tenía, para que si el conductor guarda sin
     // elegir una foto nueva no se borre la que ya tenía cargada (mismo patrón que el wizard de
     // registro: getUpload() || el valor que ya existía).
