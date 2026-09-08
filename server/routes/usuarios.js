@@ -48,6 +48,15 @@ function registrar(rol) {
     if (!body.password || String(body.password).length < 8) {
       return badRequest(res, "Elegí una contraseña de al menos 8 caracteres.");
     }
+    // Fix (08 sep 2026, a pedido explícito del usuario: "hace que lo acepten sí o sí o si no que no
+    // se puedan y que se guarde esto") — el checkbox del wizard ("Leí y acepto los Términos y
+    // Condiciones...") antes solo se validaba en el cliente (js/views.js validarPaso()), así que
+    // llamando directo a este endpoint (sin pasar por el wizard) se podía crear una cuenta sin
+    // haberlo aceptado nunca. Ahora el servidor lo exige también, y lo que se guarda más abajo
+    // (acepta_terminos/acepta_terminos_at) es la única constancia real de la aceptación.
+    if (!body.acepta_reglas) {
+      return badRequest(res, "Tenés que aceptar los Términos y Condiciones, las Reglas de la Ruta y la Política de Privacidad para registrarte.");
+    }
 
     if (rol === "conductor") {
       if (!body.doc_licencia_frente || !body.doc_licencia_dorso) {
@@ -89,8 +98,8 @@ function registrar(rol) {
         doc_seguro, doc_vtv_declarada,
         doc_vtv, vtv_vencimiento,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
-        alias_cobro, password, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        alias_cobro, password, created_at, acepta_terminos, acepta_terminos_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -137,6 +146,10 @@ function registrar(rol) {
         body.vehiculo_asientos || 3,
         body.alias_cobro || null,
         hashPassword(body.password),
+        nowIso(),
+        // acepta_terminos siempre 1 acá — si `body.acepta_reglas` no vino en true, ya se rechazó el
+        // alta más arriba con badRequest() y nunca se llega a este INSERT.
+        1,
         nowIso(),
       ]
     );

@@ -271,6 +271,26 @@ async function initSchema() {
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS conductor_motivo_rechazo TEXT;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS conductor_solicitado_at TEXT;
 
+    -- Aceptación de Términos y Condiciones/Reglas de la Ruta/Política de Privacidad al registrarse
+    -- (08 sep 2026, a pedido explícito del usuario: "a la hora de alguien crearse algún usuario,
+    -- acepta nuestros términos y condiciones no? hace que lo acepten sí o sí o si no que no se
+    -- puedan y que se guarde esto"). Hasta este cambio el checkbox del wizard de registro
+    -- ("Leí y acepto los Términos y Condiciones...") solo se validaba del lado del cliente
+    -- (js/views.js validarPaso()) — nunca se chequeaba en el servidor (así que alguien podía saltarlo
+    -- llamando directo a la API) NI se guardaba en ningún lado, así que no había ningún registro real
+    -- de que la cuenta lo aceptó. Ahora registrar() (server/routes/usuarios.js) RECHAZA el alta si
+    -- "acepta_reglas" no viene en true en el body, y graba la aceptación acá:
+    --   - acepta_terminos: 1 para toda cuenta nueva de acá en adelante (siempre 1, nunca se guarda una
+    --     cuenta con esto en 0 — si no aceptó, el registro directamente se rechaza).
+    --   - acepta_terminos_at: fecha/hora exacta del alta (mismo timestamp que created_at), para tener
+    --     constancia de CUÁNDO se aceptó, no solo que se aceptó.
+    -- Cuentas registradas ANTES de este cambio quedan con estos dos campos en NULL/0 — no hay forma de
+    -- reconstruir retroactivamente si esas cuentas aceptaron o no (el checkbox existía en el wizard
+    -- desde antes, pero nunca se guardó la respuesta), así que no se migra nada acá a propósito; NULL
+    -- en acepta_terminos_at para una cuenta vieja se interpreta como "de antes de este control".
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos INTEGER DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos_at TEXT;
+
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,
       usuario_id TEXT NOT NULL REFERENCES usuarios(id),
@@ -304,11 +324,13 @@ async function initSchema() {
     ["peaje_default_ruta5_226", "3200"],
     ["comision_plataforma_pct", "10"],
     ["comision_minima", "2000"],
-    // Consumo de referencia: 12 litros cada 100km (a pedido explícito del usuario, 08 sep 2026 —
-    // antes eran 10). Ver migrarConsumoNafta08Sep2026() más abajo para la corrección del valor ya
-    // sembrado en bases que arrancaron antes de este cambio (los seeds usan ON CONFLICT DO NOTHING,
-    // así que cambiar el default acá no alcanza solo).
-    ["consumo_litros_100km", "12"],
+    // Consumo de referencia: vuelta a 10 litros cada 100km (a pedido explícito del usuario, 08 sep
+    // 2026, segunda vuelta del mismo día: "Siento caro el viaje, nafta super a 10 litros por km, mas
+    // no!" — revierte el cambio a 12 de más temprano ese mismo día). Ver
+    // migrarConsumoNafta08Sep2026SegundaVuelta() más abajo para la corrección del valor ya sembrado
+    // en bases que ya habían arrancado con 12 (los seeds usan ON CONFLICT DO NOTHING, así que cambiar
+    // el default acá no alcanza solo).
+    ["consumo_litros_100km", "10"],
     ["tolerancia_ajuste_pct", "15"],
     // Piso mínimo de precio por asiento: nunca menos de $12.000 (tarifa mínima para trayectos
     // cortos, hasta ~230 km) ni menos de $52 por km recorrido — 500 km da exactamente $26.000.
@@ -367,6 +389,7 @@ async function initSchema() {
   await migrarAutoAprobarPasajeros07Sep2026();
   await migrarVariantesRuta07Sep2026();
   await migrarConsumoNafta08Sep2026();
+  await migrarConsumoNafta08Sep2026SegundaVuelta();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -575,6 +598,19 @@ async function migrarConsumoNafta08Sep2026() {
   const fila = await get("SELECT valor FROM config WHERE clave = 'consumo_litros_100km'");
   if (fila && fila.valor === "10") {
     await run("UPDATE config SET valor = ? WHERE clave = 'consumo_litros_100km'", ["12"]);
+  }
+}
+
+// Migración puntual (08 sep 2026, segunda vuelta del mismo día) — a pedido explícito del usuario:
+// "Siento caro el viaje, nafta super a 10 litros por km, mas no!" — revierte el cambio de la
+// migración de arriba (que había puesto 12) de vuelta a 10. Mismo patrón: fuerza el UPDATE, pero
+// SOLO si el valor guardado todavía coincide EXACTO con "12" (el valor que dejó la migración
+// anterior), para respetar cualquier edición manual que el admin haya hecho mientras tanto desde el
+// panel. Corre en cada arranque en frío; después de la primera vez ya no encuentra nada para tocar.
+async function migrarConsumoNafta08Sep2026SegundaVuelta() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'consumo_litros_100km'");
+  if (fila && fila.valor === "12") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'consumo_litros_100km'", ["10"]);
   }
 }
 
