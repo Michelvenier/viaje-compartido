@@ -304,7 +304,11 @@ async function initSchema() {
     ["peaje_default_ruta5_226", "3200"],
     ["comision_plataforma_pct", "10"],
     ["comision_minima", "2000"],
-    ["consumo_litros_100km", "10"],
+    // Consumo de referencia: 12 litros cada 100km (a pedido explícito del usuario, 08 sep 2026 —
+    // antes eran 10). Ver migrarConsumoNafta08Sep2026() más abajo para la corrección del valor ya
+    // sembrado en bases que arrancaron antes de este cambio (los seeds usan ON CONFLICT DO NOTHING,
+    // así que cambiar el default acá no alcanza solo).
+    ["consumo_litros_100km", "12"],
     ["tolerancia_ajuste_pct", "15"],
     // Piso mínimo de precio por asiento: nunca menos de $12.000 (tarifa mínima para trayectos
     // cortos, hasta ~230 km) ni menos de $52 por km recorrido — 500 km da exactamente $26.000.
@@ -362,6 +366,7 @@ async function initSchema() {
   await migrarRolDual07Sep2026();
   await migrarAutoAprobarPasajeros07Sep2026();
   await migrarVariantesRuta07Sep2026();
+  await migrarConsumoNafta08Sep2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -555,6 +560,21 @@ async function migrarVariantesRuta07Sep2026() {
   }
   if (cambio) {
     await run("UPDATE config SET valor = ? WHERE clave = 'distancias_corredor'", [JSON.stringify(distancias)]);
+  }
+}
+
+// Migración puntual (08 sep 2026) — a pedido explícito del usuario: "QUIERO QUE ME MODIFIQUES Y
+// PONGAS 12 LITROS DE NAFTA CADA 100KM". Mismo patrón que la corrección de peaje_por_km_estimado
+// (ver migrarPeajesReales24Ago2026 arriba): el seed de "consumo_litros_100km" usa ON CONFLICT DO
+// NOTHING, así que una base que ya arrancó antes de este cambio se queda con el valor viejo aunque
+// el default del código ya diga "12" — esta migración fuerza el UPDATE, pero SOLO si el valor
+// guardado todavía coincide EXACTO con el viejo default ("10"), para respetar cualquier edición
+// manual que el admin ya haya hecho desde el panel. Corre en cada arranque en frío, pero después de
+// la primera vez ya no encuentra nada para tocar.
+async function migrarConsumoNafta08Sep2026() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'consumo_litros_100km'");
+  if (fila && fila.valor === "10") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'consumo_litros_100km'", ["12"]);
   }
 }
 

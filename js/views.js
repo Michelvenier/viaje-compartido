@@ -818,6 +818,11 @@ function viewPublicar(app) {
           intermediasCiudades.splice(Number(chip.dataset.idx), 1);
           renderChipsIntermedias();
           renderPuntosEncuentroContainer();
+          // Mismo fix del 08 sep 2026 que en el checklist automático de arriba — sacar una ciudad
+          // acá también puede cambiar el peaje calculado (ver "variantes" en server/corredor.js), y
+          // sin esto la vista previa del precio no se enteraba hasta que el conductor tocara otro
+          // campo vigilado.
+          actualizarPreview();
         });
       });
     }
@@ -840,6 +845,8 @@ function viewPublicar(app) {
         };
         renderChipsIntermedias();
         renderPuntosEncuentroContainer();
+        // Mismo fix del 08 sep 2026 que arriba.
+        actualizarPreview();
       }
     });
 
@@ -999,8 +1006,25 @@ function viewPublicar(app) {
         intermediasCiudades.length = 0;
         intermediasCiudades.push(...seleccionadas.map((c) => c.nombre));
         renderPuntosEncuentroContainer();
+        // Fix (08 sep 2026, a raíz de un reporte del usuario: "si no toco nada me aparece peajes
+        // 27.000 aprox, pero si cambio la cantidad de pasajeros, me aparece el calculo nuevo, como
+        // que trae el peaje prestablecido") — destildar/tildar una ciudad acá cambia
+        // ciudadesIntermediasElegidas(), que afecta directo el peaje que calcula el servidor (ver
+        // "variantes" en server/corredor.js), pero nadie volvía a pedir la vista previa del precio:
+        // se quedaba pegada en el valor de antes de tocar el checklist hasta que el conductor
+        // tocara algún otro campo vigilado (como "Asientos a ofrecer"). Ver el mismo fix más abajo.
+        actualizarPreview();
       });
       renderPuntosEncuentroContainer();
+      // Mismo fix que arriba: apenas termina de pintarse el checklist (se acaba de detectar la ruta
+      // real, o cambió qué caminos están tildados), hay que refrescar el precio con las ciudades
+      // intermedias YA correctas — antes, la primera vista previa se calculaba ANTES de que esta
+      // detección terminara (es asincrónica, ver intentarDetectarRuta más arriba) y usaba la lista
+      // de intermedias vieja o vacía, y nunca se volvía a pedir sola. El precio quedaba mostrando un
+      // peaje que no correspondía a la ruta real detectada hasta que el conductor tocara algún otro
+      // campo vigilado (ej. cambiar "Asientos a ofrecer"), lo cual daba la falsa impresión de que el
+      // peaje "traía un valor preestablecido" y solo se corregía por casualidad.
+      actualizarPreview();
     };
 
     pintarChecklist();

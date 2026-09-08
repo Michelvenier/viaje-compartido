@@ -300,7 +300,7 @@ const REGLAS_SECTIONS = [
       genere una ganancia por llevar pasajeros.</p>
       <h4>Valor de referencia</h4>
       <p>Tomamos un precio de referencia de la nafta Súper y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
-      consumo estimado del vehículo (por defecto, 10 litros cada 100 km) y el piso mínimo por kilómetro mencionado abajo, están
+      consumo estimado del vehículo (por defecto, 12 litros cada 100 km) y el piso mínimo por kilómetro mencionado abajo, están
       configurados desde el panel de administración y pueden actualizarse cuando cambien los costos reales del corredor.</p>
       <h4>Algoritmo</h4>
       <p>Con esos valores, el sistema calcula:</p>
