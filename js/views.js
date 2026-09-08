@@ -593,8 +593,17 @@ function viewPublicar(app) {
           </div>
           <div class="field">
             <label>Asientos a ofrecer</label>
-            <select name="asientos_totales">
-              <option value="1">1</option><option value="2">2</option><option value="3" selected>3 (recomendado)</option>
+            <!-- Sin ninguna opción pre-tildada (08 sep 2026, a pedido explícito del usuario: "sigue el
+            error, hacé que sí o sí elija la cantidad de pasajeros y recién ahí pone el precio, que esté 0
+            pasajeros preestablecidos") — arrancaba en "3 (recomendado)" ya tildado, así que el conductor
+            podía terminar de completar el formulario y ver un precio calculado sin haber tocado nunca este
+            campo. Ahora arranca sin nada elegido y es obligatorio elegir un valor real: recién ahí se
+            calcula el precio (ver el guard nuevo en actualizarPreview() y en el submit, más abajo) — esto
+            además GARANTIZA que el evento "change" de este campo (ya wireado a actualizarPreview() desde
+            antes) se dispare al menos una vez con una elección real del conductor. -->
+            <select name="asientos_totales" required>
+              <option value="" selected disabled>Elegí la cantidad…</option>
+              <option value="1">1</option><option value="2">2</option><option value="3">3 (recomendado)</option>
               <option value="4">4 (completa el auto)</option>
             </select>
           </div>
@@ -1078,10 +1087,19 @@ function viewPublicar(app) {
       return;
     }
     const fd = new FormData(form);
+    // Fix (08 sep 2026, a pedido explícito del usuario) — "Asientos a ofrecer" ya no viene con nada
+    // pre-tildado (ver el <select> más arriba), así que acá hay que exigir una elección real antes de
+    // calcular nada: sin esto, Number("") || 3 hubiera calculado igual con 3 como si el conductor ya
+    // hubiera elegido, dejando pasar el mismo problema de fondo por otra puerta.
+    const asientosElegidos = fd.get("asientos_totales");
+    if (!asientosElegidos) {
+      app.querySelector("#precio-preview").innerHTML = `<span class="muted">Elegí la cantidad de asientos a ofrecer para ver el precio calculado.</span>`;
+      return;
+    }
     try {
       const calc = await Api.post("/api/pricing/calcular", {
         ...ciudades,
-        asientos_totales: Number(fd.get("asientos_totales")) || 3,
+        asientos_totales: Number(asientosElegidos),
         origen_coords: ciudadesCoords.origen_ciudad || null,
         destino_coords: ciudadesCoords.destino_ciudad || null,
         // 07 sep 2026, a pedido del usuario ("si voy por Saladillo no tengo esos peajes"): se manda
@@ -1130,6 +1148,14 @@ function viewPublicar(app) {
       return;
     }
     const fd = new FormData(form);
+    // Fix (08 sep 2026, a pedido explícito del usuario) — mismo motivo que el guard nuevo en
+    // actualizarPreview(): "Asientos a ofrecer" ya no viene pre-tildado, así que hay que exigir acá
+    // también una elección real antes de publicar (nunca confiar solo en el "required" del <select>,
+    // que un navegador viejo o algún caso raro podría no hacer cumplir).
+    if (!fd.get("asientos_totales")) {
+      toast("Elegí la cantidad de asientos a ofrecer.", "error");
+      return;
+    }
     const intermedias = ciudadesIntermediasElegidas();
     // Solo se mandan los puntos de encuentro de ciudades que siguen siendo parte del camino —
     // así si el conductor eligió un punto para una ciudad intermedia y después la borró del campo
@@ -1159,7 +1185,7 @@ function viewPublicar(app) {
       fecha_salida: fd.get("fecha_salida"),
       hora_salida: fd.get("hora_salida"),
       hora_llegada_estimada: fd.get("hora_llegada_estimada") || null,
-      asientos_totales: Number(fd.get("asientos_totales")) || 3,
+      asientos_totales: Number(fd.get("asientos_totales")),
       permite_mascotas: !!fd.get("permite_mascotas"),
       permite_equipaje_grande: !!fd.get("permite_equipaje_grande"),
       permite_fumar: !!fd.get("permite_fumar"),
