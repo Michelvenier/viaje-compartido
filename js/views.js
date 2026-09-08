@@ -1051,7 +1051,20 @@ function viewPublicar(app) {
   }
   mejorarConGoogleMaps();
 
+  // Token de secuencia (08 sep 2026, segunda vuelta del mismo reporte del usuario: "sigue igual,
+  // tengo que tocar los pasajeros para que cambie") — el fix anterior (más llamadas a
+  // actualizarPreview() apenas se detecta la ruta real / cambia el checklist) no alcanzaba porque
+  // esta función es asincrónica (espera la respuesta de /api/pricing/calcular) y ahora se dispara
+  // varias veces seguidas en cadena: una apenas se elige la ciudad (todavía sin la ruta real
+  // detectada) y otra de nuevo cuando termina la detección con las ciudades intermedias correctas.
+  // Sin este token, si la respuesta de la primera llamada (la vieja, con el peaje por defecto)
+  // vuelve del servidor DESPUÉS que la de la segunda (la correcta, ya con la ruta real), la vieja
+  // pisaba en pantalla a la nueva — quedaba mostrado el peaje viejo aunque el checklist ya tuviera
+  // tildada la ciudad real (ej. Saladillo). Ahora cada llamada a actualizarPreview() se numera, y
+  // al volver la respuesta se descarta si ya hay una llamada más nueva en curso.
+  let previewToken = 0;
   async function actualizarPreview() {
+    const miToken = ++previewToken;
     const origen_ciudad = form.querySelector('[name="origen_ciudad"]').value;
     const destino_ciudad = form.querySelector('[name="destino_ciudad"]').value;
     const ciudades = ciudadesElegidas();
@@ -1078,6 +1091,7 @@ function viewPublicar(app) {
         // se completa el formulario, ya refleja la ruta real que va a hacer el conductor.
         ciudades_intermedias: ciudadesIntermediasElegidas(),
       });
+      if (miToken !== previewToken) return; // llegó tarde: ya hay una llamada más nueva en curso o resuelta, no pisarla
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
           <div class="row"><span>Distancia (${escapeHtml(calc.origenCiudad)} ↔ ${escapeHtml(calc.destinoCiudad)})</span><span>${calc.distanciaKm} km</span></div>
@@ -1089,6 +1103,7 @@ function viewPublicar(app) {
         <p class="muted" style="margin:6px 0 0">Este precio sale automático del cálculo — no se puede modificar.</p>`;
       btnPublicar.disabled = false;
     } catch (err) {
+      if (miToken !== previewToken) return; // llegó tarde, ídem arriba
       app.querySelector("#precio-preview").innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
     }
   }
