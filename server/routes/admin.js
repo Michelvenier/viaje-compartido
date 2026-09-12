@@ -361,6 +361,31 @@ async function pagosPendientes(req, res) {
   ok(res, rows);
 }
 
+// Solicitudes de reserva que un pasajero ya mandó y el conductor todavía no aceptó ni rechazó
+// (12 sep 2026, a pedido explícito del usuario: "quiero ver como administrador las solicitudes
+// pendientes de pasajeros a conductores y el estado de la misma, para cualquier cosa comunicarme
+// con el conductor y que acepte el viaje") — antes no existía ninguna vista de admin sobre esto: una
+// reserva podía quedar "pendiente" indefinidamente si el conductor no entraba a la app o no veía la
+// notificación, sin que el equipo tuviera forma de detectarlo ni de intervenir. Se traen el teléfono
+// del pasajero y del conductor (mismo patrón que resetearPassword() — ver
+// formatearNumeroWhatsapp() en js/state.js) para que el panel pueda armar un link de WhatsApp
+// directo al conductor, pidiéndole que entre a aceptar o rechazar la solicitud.
+async function solicitudesPendientes(req, res) {
+  const rows = await db.all(
+    `SELECT r.id, r.asientos_reservados, r.created_at,
+            v.id AS viaje_id, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida,
+            p.id AS pasajero_id, p.nombre AS pasajero_nombre, p.apellido AS pasajero_apellido, p.telefono AS pasajero_telefono,
+            c.id AS conductor_id, c.nombre AS conductor_nombre, c.apellido AS conductor_apellido, c.telefono AS conductor_telefono
+     FROM reservas r
+     JOIN viajes v ON v.id = r.viaje_id
+     JOIN usuarios p ON p.id = r.pasajero_id
+     JOIN usuarios c ON c.id = v.conductor_id
+     WHERE r.estado = 'pendiente'
+     ORDER BY r.created_at ASC`
+  );
+  ok(res, rows);
+}
+
 // El admin confirma que efectivamente recibió el pago de la comisión declarado por el pasajero —
 // recién acá "pagado" pasa a 1 (nunca antes, con solo el comprobante subido). Esto desbloquea al
 // pasajero para reservar otro viaje (ver reservas.js crear()) y habilita que el conductor pueda
@@ -466,6 +491,7 @@ module.exports = {
   cuentaCorrientePendientes,
   confirmarPagoCuenta,
   pagosPendientes,
+  solicitudesPendientes,
   confirmarPagoReserva,
   datosCobro,
   seed,

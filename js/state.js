@@ -42,6 +42,22 @@ function iniciales(nombre, apellido) {
   return `${(nombre || "?")[0] || ""}${(apellido || "")[0] || ""}`.toUpperCase();
 }
 
+// Tiempo transcurrido en criollo ("hace 5 min" / "hace 3 hs" / "hace 2 días") a partir de un
+// timestamp ISO completo (created_at, no una fecha suelta como fmtFecha) — usado en el panel admin
+// (12 sep 2026, "Solicitudes pendientes de aceptación") para que se note de un vistazo cuáles
+// llevan esperando más tiempo al conductor y conviene empujar primero.
+function tiempoEsperando(iso) {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "recién";
+  if (min < 60) return `hace ${min} min`;
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return `hace ${horas} hs`;
+  const dias = Math.floor(horas / 24);
+  return `hace ${dias} día${dias === 1 ? "" : "s"}`;
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)

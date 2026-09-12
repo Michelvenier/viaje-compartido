@@ -93,6 +93,7 @@ router.patch("/api/admin/reembolsos/:id/marcar-reembolsado", adminOnly(admin.mar
 router.get("/api/admin/cuenta-corriente-pendientes", adminOnly(admin.cuentaCorrientePendientes));
 router.patch("/api/admin/cuenta-corriente/:id/confirmar", adminOnly(admin.confirmarPagoCuenta));
 router.get("/api/admin/pagos-pendientes", adminOnly(admin.pagosPendientes));
+router.get("/api/admin/solicitudes-pendientes", adminOnly(admin.solicitudesPendientes));
 router.patch("/api/admin/reservas/:id/confirmar-pago", adminOnly(admin.confirmarPagoReserva));
 router.get("/api/admin/seed", admin.seed);
 router.post("/api/admin/configurar-admin", admin.configurarAdmin);

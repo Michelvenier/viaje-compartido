@@ -2263,9 +2263,9 @@ async function viewAdmin(app) {
   }
 
   app.innerHTML = `<div class="container"><p class="muted">Cargando panel…</p></div>`;
-  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor;
+  let pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor, solicitudesPendientes;
   try {
-    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor] =
+    [pendientes, config, stats, reembolsos, cuentasPendientes, usuarios, choferes, pagosPendientes, pendientesConductor, solicitudesPendientes] =
       await Promise.all([
         Api.get("/api/admin/pendientes"),
         Api.get("/api/admin/config"),
@@ -2279,6 +2279,9 @@ async function viewAdmin(app) {
         // perfil" por cuentas que ya estaban validadas como pasajero — distintos de "pendientes"
         // (que es la validación de identidad de una cuenta recién registrada).
         Api.get("/api/admin/pendientes-conductor"),
+        // 12 sep 2026: solicitudes de reserva que un pasajero ya mandó y el conductor todavía no
+        // aceptó ni rechazó — ver solicitudesPendientes() en server/routes/admin.js.
+        Api.get("/api/admin/solicitudes-pendientes"),
       ]);
   } catch (e) {
     if (e.status === 403) {
@@ -2320,6 +2323,41 @@ async function viewAdmin(app) {
             <button type="button" class="btn btn-outline danger btn-sm" id="btn-resetear-datos-prueba">🗑️ Borrar viajes y estadísticas de prueba</button>
           </div>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3>Solicitudes de reserva — esperando que el conductor acepte (${solicitudesPendientes.length})</h3>
+        <p class="muted">Pasajeros que ya mandaron su solicitud y el conductor todavía no aceptó ni rechazó. Si lleva mucho tiempo
+        esperando, usá "WhatsApp al conductor" para avisarle directo.</p>
+        ${
+          solicitudesPendientes.length === 0
+            ? `<p class="muted">No hay solicitudes esperando respuesta del conductor. 🎉</p>`
+            : `<table class="admin-table"><thead><tr><th>Pasajero</th><th>Conductor</th><th>Viaje</th><th>Asientos</th><th>Esperando</th><th>Acción</th></tr></thead><tbody>
+              ${solicitudesPendientes
+                .map(
+                  (r) => `<tr>
+                <td>${escapeHtml(r.pasajero_nombre)} ${escapeHtml(r.pasajero_apellido)}</td>
+                <td>${escapeHtml(r.conductor_nombre)} ${escapeHtml(r.conductor_apellido)}</td>
+                <td>${escapeHtml(r.origen_ciudad)} → ${escapeHtml(r.destino_ciudad)}<br><span class="muted" style="font-size:0.78rem">${fmtFecha(r.fecha_salida)} · ${escapeHtml(r.hora_salida || "")}</span></td>
+                <td>${r.asientos_reservados}</td>
+                <td class="muted" style="font-size:0.78rem">${tiempoEsperando(r.created_at)}</td>
+                <td>
+                  ${
+                    formatearNumeroWhatsapp(r.conductor_telefono)
+                      ? `<button class="btn btn-teal btn-sm" data-avisar-conductor="${r.id}"
+                          data-conductor-telefono="${escapeHtml(r.conductor_telefono || "")}"
+                          data-conductor-nombre="${escapeHtml(r.conductor_nombre || "")}"
+                          data-pasajero-nombre="${escapeHtml(`${r.pasajero_nombre || ""} ${r.pasajero_apellido || ""}`.trim())}"
+                          data-viaje="${escapeHtml(`${r.origen_ciudad} → ${r.destino_ciudad}`)}"
+                          data-fecha="${escapeHtml(fmtFecha(r.fecha_salida))}">💬 WhatsApp al conductor</button>`
+                      : `<span class="muted" style="font-size:0.78rem">Sin teléfono cargado</span>`
+                  }
+                </td>
+              </tr>`
+                )
+                .join("")}
+            </tbody></table>`
+        }
       </div>
 
       <div class="card" style="margin-bottom:20px">
@@ -2763,6 +2801,21 @@ async function viewAdmin(app) {
       fila.style.display = fila.dataset.usuarioBusqueda.includes(q) ? "" : "none";
     });
   });
+  // Botón "💬 WhatsApp al conductor" de "Solicitudes de reserva — esperando que el conductor
+  // acepte" (12 sep 2026) — mismo patrón que resetearPassword() más abajo: arma el link wa.me con
+  // formatearNumeroWhatsapp() (js/state.js) y un mensaje ya escrito, pero acá no hace falta llamar
+  // a ningún endpoint antes — el mensaje se abre directo, el admin solo tiene que mandarlo.
+  app.querySelectorAll("[data-avisar-conductor]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const numeroWhatsapp = formatearNumeroWhatsapp(btn.dataset.conductorTelefono);
+      if (!numeroWhatsapp) {
+        toast("Este conductor no tiene un teléfono cargado.", "error");
+        return;
+      }
+      const mensaje = `Hola ${btn.dataset.conductorNombre}! Te escribimos de Ruta Compartida: tenés una solicitud de reserva de ${btn.dataset.pasajeroNombre} para tu viaje ${btn.dataset.viaje} (${btn.dataset.fecha}) que todavía está esperando que la aceptes o la rechaces. Entrá a la app, a "Mis viajes", y vas a verla debajo de ese viaje publicado. ¡Gracias!`;
+      window.open(`https://wa.me/${numeroWhatsapp}?text=${encodeURIComponent(mensaje)}`, "_blank");
+    })
+  );
   app.querySelectorAll("[data-resetear-password]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm("¿Restablecer la contraseña de este usuario? La actual deja de servir al instante.")) return;
