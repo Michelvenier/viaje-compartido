@@ -370,8 +370,16 @@ async function pagosPendientes(req, res) {
 // del pasajero y del conductor (mismo patrón que resetearPassword() — ver
 // formatearNumeroWhatsapp() en js/state.js) para que el panel pueda armar un link de WhatsApp
 // directo al conductor, pidiéndole que entre a aceptar o rechazar la solicitud.
+//
+// Ampliado el 15 sep 2026, a pedido explícito del usuario ("En solicitudes quiero que aparezcan
+// todas, osea ahora tambien la de los pasajeros que no confirmaron el viaje que les ofrecio el
+// conductor"): esta lista ahora también trae las ofertas PENDIENTES de "Busco viaje" (ver
+// server/routes/busquedas.js) — ahí es al revés, el CONDUCTOR ya ofreció un viaje puntual y el
+// PASAJERO es quien todavía no lo aceptó ni lo rechazó. Cada fila lleva `tipo` ("reserva" u "oferta")
+// y `quien_falta` ("conductor" o "pasajero") para que el panel arme el link de WhatsApp a quien
+// corresponda en cada caso — nunca siempre al conductor, como hacía la versión anterior.
 async function solicitudesPendientes(req, res) {
-  const rows = await db.all(
+  const reservasPendientes = await db.all(
     `SELECT r.id, r.asientos_reservados, r.created_at,
             v.id AS viaje_id, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida,
             p.id AS pasajero_id, p.nombre AS pasajero_nombre, p.apellido AS pasajero_apellido, p.telefono AS pasajero_telefono,
@@ -380,9 +388,24 @@ async function solicitudesPendientes(req, res) {
      JOIN viajes v ON v.id = r.viaje_id
      JOIN usuarios p ON p.id = r.pasajero_id
      JOIN usuarios c ON c.id = v.conductor_id
-     WHERE r.estado = 'pendiente'
-     ORDER BY r.created_at ASC`
+     WHERE r.estado = 'pendiente'`
   );
+  const ofertasPendientes = await db.all(
+    `SELECT o.id, b.asientos_necesarios AS asientos_reservados, o.created_at,
+            v.id AS viaje_id, v.origen_ciudad, v.destino_ciudad, v.fecha_salida, v.hora_salida,
+            p.id AS pasajero_id, p.nombre AS pasajero_nombre, p.apellido AS pasajero_apellido, p.telefono AS pasajero_telefono,
+            c.id AS conductor_id, c.nombre AS conductor_nombre, c.apellido AS conductor_apellido, c.telefono AS conductor_telefono
+     FROM ofertas_conductor o
+     JOIN busquedas_pasajero b ON b.id = o.busqueda_id
+     JOIN viajes v ON v.id = o.viaje_id
+     JOIN usuarios p ON p.id = b.pasajero_id
+     JOIN usuarios c ON c.id = o.conductor_id
+     WHERE o.estado = 'pendiente'`
+  );
+  const rows = [
+    ...reservasPendientes.map((r) => ({ ...r, tipo: "reserva", quien_falta: "conductor" })),
+    ...ofertasPendientes.map((o) => ({ ...o, tipo: "oferta", quien_falta: "pasajero" })),
+  ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   ok(res, rows);
 }
 

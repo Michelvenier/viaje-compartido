@@ -48,6 +48,35 @@ function viewHome(app) {
       solo conectamos a quienes ya hacen el viaje. <a href="#/terminos" style="color:#fff;text-decoration:underline">Conocé los Términos y Condiciones →</a>
     </div>
 
+    <!-- Actividad reciente (15 sep 2026, a pedido explícito del usuario: "quiero que en el inicio de
+    la pagina aparezcan las ofertas de pasajeros buscando viaje y conductores ofreciendo, bien
+    diferenciado") — dos columnas lado a lado, cada una con su propio ícono/color de acento
+    (.busqueda-card, nueva, vs. .trip-card ya existente) para que se note de un vistazo cuál es cuál,
+    aunque las dos usen las mismas clases tipográficas internas (.trip-route/.trip-meta/.trip-driver)
+    por consistencia visual con el resto de la app. Se cargan aparte (cargarBusquedasHome/
+    cargarViajesHome más abajo), cada una con su propio try/catch, para que si una de las dos APIs
+    falla no se caiga la otra. -->
+    <div class="container">
+      <div class="grid-2" style="align-items:start;margin-bottom:24px">
+        <div>
+          <div class="section-title" style="text-align:left">
+            <h2>🧳 Pasajeros buscando viaje</h2>
+            <p>Todavía no encontraron un viaje que les sirva — si hacés esa ruta, ofrecele el tuyo.</p>
+          </div>
+          <div id="home-busquedas"><p class="muted">Cargando…</p></div>
+          <a href="#/busco-viaje" class="btn btn-outline btn-sm" style="margin-top:6px">Ver todas las búsquedas →</a>
+        </div>
+        <div>
+          <div class="section-title" style="text-align:left">
+            <h2>🚗 Conductores con viajes disponibles</h2>
+            <p>Viajes ya publicados, con asientos libres y listos para reservar.</p>
+          </div>
+          <div id="home-viajes"><p class="muted">Cargando…</p></div>
+          <a href="#/buscar" class="btn btn-outline btn-sm" style="margin-top:6px">Ver todos los viajes →</a>
+        </div>
+      </div>
+    </div>
+
     <div class="container">
       <div class="section-title">
         <h2>¿Cómo funciona?</h2>
@@ -98,6 +127,8 @@ function viewHome(app) {
     location.hash = `#/buscar?${params.toString()}`;
   });
   mejorarBuscadorCiudades(app);
+  cargarBusquedasHome(app.querySelector("#home-busquedas"));
+  cargarViajesHome(app.querySelector("#home-viajes"));
 }
 
 // Reemplaza los selects "Salgo de"/"Voy a" de un buscador (home o resultados) por buscadores
@@ -117,6 +148,72 @@ async function mejorarBuscadorCiudades(app) {
     const cont = app.querySelector(`[data-ciudad-field="${name}"]`);
     if (cont) reemplazarSelectPorAutocompleteCiudad(cont, name, null, name === "origen" ? "Cualquier origen" : "Cualquier destino");
   });
+}
+
+// Tarjeta de una búsqueda abierta para el inicio (15 sep 2026) — versión resumida de
+// busquedaAbiertaCardHtml (definida más abajo, para la pantalla "Busco viaje"): sin botón de
+// "Ofrecer un viaje" ni panel desplegable, porque acá no hace falta estar logueado — toda la
+// tarjeta es un link a "Busco viaje" (o al login, si hace falta) para ofrecerle el viaje desde ahí.
+// Reusa las mismas clases tipográficas que renderTripCard (.trip-route/.trip-meta/.trip-driver) para
+// que las dos columnas del inicio se vean como parte de la misma familia visual, dentro de su propio
+// contenedor `.busqueda-card` (ver css/style.css) para diferenciarse de `.trip-card` a simple vista.
+function busquedaHomeCardHtml(b) {
+  const nombrePasajero = `${b.pasajero_nombre || ""} ${b.pasajero_apellido || ""}`.trim();
+  const rango = b.fecha_hasta && b.fecha_hasta !== b.fecha_desde ? `${fmtFecha(b.fecha_desde)} al ${fmtFecha(b.fecha_hasta)}` : fmtFecha(b.fecha_desde);
+  return `
+    <div class="busqueda-card" data-busqueda-home="1">
+      <div style="flex:1">
+        <div class="trip-route">🧳 ${escapeHtml(b.origen_ciudad)} <span class="arrow">→</span> ${escapeHtml(b.destino_ciudad)}</div>
+        <div class="trip-meta">
+          <span>📅 ${escapeHtml(rango)}</span>
+          <span>💺 ${b.asientos_necesarios} asiento(s)</span>
+        </div>
+        <div class="trip-driver">
+          <div><strong>${escapeHtml(nombrePasajero)}</strong> busca viaje ${
+            b.pasajero_rating_count ? `<span class="stars">★ ${b.pasajero_rating_promedio}</span>` : '<span class="muted">· pasajero nuevo</span>'
+          }</div>
+        </div>
+      </div>
+      <div class="trip-price">
+        <div class="muted" style="font-size:0.85rem">¿Vas por ahí?</div>
+        <div style="font-weight:700">Ofrecele tu viaje</div>
+      </div>
+    </div>`;
+}
+
+// Cargan la actividad reciente del inicio en paralelo pero de forma INDEPENDIENTE (cada una con su
+// propio try/catch) — si `/api/busquedas/abiertas` o `/api/viajes` falla, la otra columna igual se
+// termina de pintar en vez de quedar las dos en blanco. `cont.isConnected` (mismo chequeo que
+// mejorarBuscadorCiudades) evita pisar una pantalla distinta si el usuario ya navegó a otro lado
+// mientras la respuesta todavía estaba en vuelo.
+async function cargarBusquedasHome(cont) {
+  if (!cont) return;
+  try {
+    const busquedas = await Api.get("/api/busquedas/abiertas");
+    if (!cont.isConnected) return;
+    cont.innerHTML =
+      busquedas.length === 0
+        ? `<p class="muted">Todavía no hay pasajeros buscando viaje. <a href="#/busco-viaje">Sé el primero en publicar tu búsqueda</a>.</p>`
+        : busquedas.slice(0, 4).map(busquedaHomeCardHtml).join("");
+    cont.querySelectorAll("[data-busqueda-home]").forEach((card) => card.addEventListener("click", () => (location.hash = "#/busco-viaje")));
+  } catch (err) {
+    if (cont.isConnected) cont.innerHTML = `<p class="muted">No se pudo cargar la actividad de pasajeros ahora.</p>`;
+  }
+}
+
+async function cargarViajesHome(cont) {
+  if (!cont) return;
+  try {
+    const viajes = await Api.get("/api/viajes");
+    if (!cont.isConnected) return;
+    cont.innerHTML =
+      viajes.length === 0
+        ? `<p class="muted">Todavía no hay viajes publicados. <a href="#/registro/conductor">Publicá el tuyo</a>.</p>`
+        : viajes.slice(0, 4).map(renderTripCard).join("");
+    cont.querySelectorAll(".trip-card").forEach((card) => card.addEventListener("click", () => (location.hash = `#/viaje/${card.dataset.viajeId}`)));
+  } catch (err) {
+    if (cont.isConnected) cont.innerHTML = `<p class="muted">No se pudo cargar los viajes disponibles ahora.</p>`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2763,35 +2860,43 @@ async function viewAdmin(app) {
       </div>
 
       <div class="card" style="margin-bottom:20px">
-        <h3>Solicitudes de reserva — esperando que el conductor acepte (${solicitudesPendientes.length})</h3>
-        <p class="muted">Pasajeros que ya mandaron su solicitud y el conductor todavía no aceptó ni rechazó. Si lleva mucho tiempo
-        esperando, usá "WhatsApp al conductor" para avisarle directo.</p>
+        <h3>Solicitudes pendientes de confirmación (${solicitudesPendientes.length})</h3>
+        <p class="muted">Todas las confirmaciones que están esperando respuesta de alguien: reservas que un pasajero ya pidió y
+        el conductor todavía no aceptó ni rechazó, y (desde "Busco viaje") ofertas que un conductor ya mandó y el pasajero
+        todavía no eligió. Si lleva mucho tiempo esperando, usá el botón de WhatsApp para avisarle directo a quien falta
+        confirmar.</p>
         ${
           solicitudesPendientes.length === 0
-            ? `<p class="muted">No hay solicitudes esperando respuesta del conductor. 🎉</p>`
-            : `<table class="admin-table"><thead><tr><th>Pasajero</th><th>Conductor</th><th>Viaje</th><th>Asientos</th><th>Esperando</th><th>Acción</th></tr></thead><tbody>
+            ? `<p class="muted">No hay ninguna confirmación pendiente. 🎉</p>`
+            : `<table class="admin-table"><thead><tr><th>Pasajero</th><th>Conductor</th><th>Viaje</th><th>Asientos</th><th>Falta confirmar</th><th>Esperando</th><th>Acción</th></tr></thead><tbody>
               ${solicitudesPendientes
-                .map(
-                  (r) => `<tr>
+                .map((r) => {
+                  const esOferta = r.tipo === "oferta";
+                  const nombreContacto = esOferta ? r.pasajero_nombre : r.conductor_nombre;
+                  const telefonoContacto = esOferta ? r.pasajero_telefono : r.conductor_telefono;
+                  return `<tr>
                 <td>${escapeHtml(r.pasajero_nombre)} ${escapeHtml(r.pasajero_apellido)}</td>
                 <td>${escapeHtml(r.conductor_nombre)} ${escapeHtml(r.conductor_apellido)}</td>
                 <td>${escapeHtml(r.origen_ciudad)} → ${escapeHtml(r.destino_ciudad)}<br><span class="muted" style="font-size:0.78rem">${fmtFecha(r.fecha_salida)} · ${escapeHtml(r.hora_salida || "")}</span></td>
                 <td>${r.asientos_reservados}</td>
+                <td>${esOferta ? "🧳 Pasajero" : "🚗 Conductor"}</td>
                 <td class="muted" style="font-size:0.78rem">${tiempoEsperando(r.created_at)}</td>
                 <td>
                   ${
-                    formatearNumeroWhatsapp(r.conductor_telefono)
-                      ? `<button class="btn btn-teal btn-sm" data-avisar-conductor="${r.id}"
-                          data-conductor-telefono="${escapeHtml(r.conductor_telefono || "")}"
+                    formatearNumeroWhatsapp(telefonoContacto)
+                      ? `<button class="btn btn-teal btn-sm" data-avisar-contacto="${r.id}"
+                          data-contacto-telefono="${escapeHtml(telefonoContacto || "")}"
+                          data-contacto-nombre="${escapeHtml(nombreContacto || "")}"
+                          data-quien-falta="${esOferta ? "pasajero" : "conductor"}"
                           data-conductor-nombre="${escapeHtml(r.conductor_nombre || "")}"
                           data-pasajero-nombre="${escapeHtml(`${r.pasajero_nombre || ""} ${r.pasajero_apellido || ""}`.trim())}"
                           data-viaje="${escapeHtml(`${r.origen_ciudad} → ${r.destino_ciudad}`)}"
-                          data-fecha="${escapeHtml(fmtFecha(r.fecha_salida))}">💬 WhatsApp al conductor</button>`
+                          data-fecha="${escapeHtml(fmtFecha(r.fecha_salida))}">💬 WhatsApp al ${esOferta ? "pasajero" : "conductor"}</button>`
                       : `<span class="muted" style="font-size:0.78rem">Sin teléfono cargado</span>`
                   }
                 </td>
-              </tr>`
-                )
+              </tr>`;
+                })
                 .join("")}
             </tbody></table>`
         }
@@ -3238,18 +3343,25 @@ async function viewAdmin(app) {
       fila.style.display = fila.dataset.usuarioBusqueda.includes(q) ? "" : "none";
     });
   });
-  // Botón "💬 WhatsApp al conductor" de "Solicitudes de reserva — esperando que el conductor
-  // acepte" (12 sep 2026) — mismo patrón que resetearPassword() más abajo: arma el link wa.me con
-  // formatearNumeroWhatsapp() (js/state.js) y un mensaje ya escrito, pero acá no hace falta llamar
-  // a ningún endpoint antes — el mensaje se abre directo, el admin solo tiene que mandarlo.
-  app.querySelectorAll("[data-avisar-conductor]").forEach((btn) =>
+  // Botón "💬 WhatsApp al conductor/pasajero" de "Solicitudes pendientes de confirmación" (12 sep
+  // 2026, ampliado el 15 sep 2026 a pedido explícito del usuario para que también aparezcan las
+  // ofertas de "Busco viaje" que el pasajero todavía no confirmó) — mismo patrón que
+  // resetearPassword() más abajo: arma el link wa.me con formatearNumeroWhatsapp() (js/state.js) y
+  // un mensaje ya escrito, sin llamar a ningún endpoint antes. `data-quien-falta` decide a quién se
+  // le manda el mensaje (y qué texto lleva) — "conductor" para una reserva de siempre esperando que
+  // el conductor acepte/rechace, "pasajero" para una oferta de conductor esperando que el pasajero
+  // la elija.
+  app.querySelectorAll("[data-avisar-contacto]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const numeroWhatsapp = formatearNumeroWhatsapp(btn.dataset.conductorTelefono);
+      const numeroWhatsapp = formatearNumeroWhatsapp(btn.dataset.contactoTelefono);
       if (!numeroWhatsapp) {
-        toast("Este conductor no tiene un teléfono cargado.", "error");
+        toast("Esta persona no tiene un teléfono cargado.", "error");
         return;
       }
-      const mensaje = `Hola ${btn.dataset.conductorNombre}! Te escribimos de Ruta Compartida: tenés una solicitud de reserva de ${btn.dataset.pasajeroNombre} para tu viaje ${btn.dataset.viaje} (${btn.dataset.fecha}) que todavía está esperando que la aceptes o la rechaces. Entrá a la app, a "Mis viajes", y vas a verla debajo de ese viaje publicado. ¡Gracias!`;
+      const mensaje =
+        btn.dataset.quienFalta === "pasajero"
+          ? `Hola ${btn.dataset.pasajeroNombre}! Te escribimos de Ruta Compartida: el conductor ${btn.dataset.conductorNombre} te ofreció el viaje ${btn.dataset.viaje} (${btn.dataset.fecha}) para tu búsqueda, y todavía está esperando que lo elijas o no. Entrá a la app, a "Busco viaje", y lo vas a ver ahí. ¡Gracias!`
+          : `Hola ${btn.dataset.conductorNombre}! Te escribimos de Ruta Compartida: tenés una solicitud de reserva de ${btn.dataset.pasajeroNombre} para tu viaje ${btn.dataset.viaje} (${btn.dataset.fecha}) que todavía está esperando que la aceptes o la rechaces. Entrá a la app, a "Mis viajes", y vas a verla debajo de ese viaje publicado. ¡Gracias!`;
       window.open(`https://wa.me/${numeroWhatsapp}?text=${encodeURIComponent(mensaje)}`, "_blank");
     })
   );

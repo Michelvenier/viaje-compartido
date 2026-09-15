@@ -136,6 +136,12 @@ textarea { resize: vertical; min-height: 70px; }
 .avatar.lg { width: 64px; height: 64px; font-size: 1.4rem; }
 .trip-price { text-align: right; min-width: 120px; }
 .trip-price .amount { font-size: 1.4rem; font-weight: 800; color: var(--black); }
+/* Tarjeta de búsqueda de pasajero en el inicio (15 sep 2026) — mismo esqueleto que .trip-card
+(reusa .trip-route/.trip-meta/.trip-driver/.trip-price por dentro) pero con fondo gris claro y una
+barra de acento a la izquierda, para diferenciarla a simple vista de las tarjetas de viaje del
+conductor (que quedan en blanco con sombra completa) sin salirse de la paleta blanco/negro de la app. */
+.busqueda-card { display: flex; justify-content: space-between; gap: 16px; padding: 18px; border-radius: var(--radius); background: var(--gray-100); border: 1px solid var(--border); border-left: 4px solid var(--black); margin-bottom: 14px; cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.busqueda-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .badge { display: inline-block; background: var(--gray-100); color: var(--black); font-size: 0.75rem; font-weight: 700; padding: 3px 9px; border-radius: 20px; margin-right: 4px; }
 .badge.orange { background: var(--near-black); color: var(--white); }
 /* "Busco viaje" (15 sep 2026): estado final positivo (búsqueda cerrada / oferta aceptada) — mismo
