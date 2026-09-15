@@ -20,6 +20,7 @@ const calificaciones = require("../server/routes/calificaciones");
 const admin = require("../server/routes/admin");
 const blob = require("../server/blob");
 const lugares = require("../server/routes/lugares");
+const busquedas = require("../server/routes/busquedas");
 
 const router = new Router();
 
@@ -71,6 +72,21 @@ router.patch("/api/reservas/:id/asistencia", reservas.reportarAsistencia);
 
 router.post("/api/calificaciones", calificaciones.crear);
 router.get("/api/calificaciones/usuario/:usuarioId", calificaciones.porUsuario);
+
+// "Busco viaje" (15 sep 2026) — el pasajero publica que busca viaje (solo ciudades + fecha exacta
+// o rango, sin punto de encuentro) y los conductores le ofrecen un viaje puntual; ver
+// server/routes/busquedas.js para el flujo completo. Sin adminOnly: mismo nivel de confianza que
+// reservas/viajes — el que llama pasa su propio id (pasajero_id/conductor_id) en el body/query y el
+// handler valida la pertenencia contra la fila real, igual que en reservas.js.
+router.post("/api/busquedas", busquedas.crear);
+router.get("/api/busquedas/abiertas", busquedas.abiertas);
+router.get("/api/busquedas/pasajero/:id", busquedas.misBusquedas);
+router.patch("/api/busquedas/:id/cancelar", busquedas.cancelar);
+router.get("/api/busquedas/:id/mis-viajes-conductor", busquedas.misViajesQueSirven);
+router.post("/api/busquedas/:id/ofertas", busquedas.ofrecer);
+router.get("/api/busquedas/ofertas/conductor/:id", busquedas.misOfertas);
+router.patch("/api/busquedas/ofertas/:id/cancelar", busquedas.cancelarOferta);
+router.post("/api/busquedas/ofertas/:id/aceptar", busquedas.aceptarOferta);
 
 // Todas estas exponen estadísticas y datos personales de usuarios/reservas — requieren un
 // token de admin válido. "seed" y "configurar-admin" quedan afuera a propósito: tienen su

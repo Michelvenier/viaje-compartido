@@ -441,4 +441,8 @@ async function reportarAsistencia(req, res, params) {
   });
 }
 
-module.exports = { crear, obtener, porPasajero, porViaje, cambiarEstado, pagar, reportarAsistencia };
+// filaReserva se exporta desde el 15 sep 2026 (feature "Busco viaje") para que
+// server/routes/busquedas.js pueda formatear la reserva que crea aceptarOferta() con el mismo
+// gating de datos del conductor (foto/teléfono/auto ocultos hasta pagar la comisión) que ya usa
+// todo el resto de la app — en vez de duplicar esa lógica en un segundo lugar.
+module.exports = { crear, obtener, porPasajero, porViaje, cambiarEstado, pagar, reportarAsistencia, filaReserva };

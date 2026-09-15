@@ -484,7 +484,14 @@ async function viewDetalle(app, params) {
 // ---------------------------------------------------------------------------
 // PUBLICAR VIAJE (conductor)
 // ---------------------------------------------------------------------------
-function viewPublicar(app) {
+function viewPublicar(app, query) {
+  // "Busco viaje" (15 sep 2026): cuando se llega acá desde #/publicar?desde_busqueda=<id> (un
+  // conductor sin viaje que le sirva a una búsqueda de pasajero, eligió "publicar uno nuevo" — ver
+  // viewBuscoViaje más abajo), reusamos ESTE MISMO formulario de publicación sin tocar nada de su
+  // lógica — solo agregamos un cartel recordatorio arriba y, si el publish sale bien, en vez del
+  // redirect de siempre a la ficha del viaje, le ofrecemos automáticamente ese viaje recién creado
+  // a la búsqueda (POST /api/busquedas/:id/ofertas) antes de volver a "Busco viaje".
+  const desdeBusquedaId = query && query.desde_busqueda;
   const user = Session.get();
   if (!user) {
     app.innerHTML = `<div class="container-narrow"><div class="card">
@@ -552,6 +559,7 @@ function viewPublicar(app) {
         <h2>Publicá tu viaje</h2>
         <p class="muted">La distancia, los peajes y el precio se calculan automáticamente según las ciudades — nadie los puede editar,
         ni siquiera vos, para que el precio nunca se aparte del costo real del trayecto.</p>
+        ${desdeBusquedaId ? `<div class="info-box" style="margin-bottom:12px">🧭 Estás publicando este viaje para ofrecérselo a un pasajero que busca viaje. Apenas lo publiques, se lo vamos a ofrecer automáticamente — nada más tenés que completar los datos de siempre.</div>` : ""}
         <div id="maps-status" class="muted" style="font-size:0.85rem;margin-bottom:10px">🌎 Cargando el buscador de Google Maps…</div>
         <div id="publicar-error"></div>
         <form id="form-publicar">
@@ -1194,6 +1202,22 @@ function viewPublicar(app) {
     };
     try {
       const viaje = await Api.post("/api/viajes", payload);
+      if (desdeBusquedaId) {
+        // Viene de "Busco viaje" (ver el cartel de arriba) — le ofrecemos este viaje recién
+        // publicado a la búsqueda del pasajero. Si el ofrecimiento en sí falla (ej. la búsqueda ya
+        // se cerró mientras el conductor completaba el formulario), el viaje de todos modos quedó
+        // publicado normalmente — se lo avisamos así y lo mandamos a "Mis viajes" para que no se
+        // pierda, en vez de tragarnos el error.
+        try {
+          await Api.post(`/api/busquedas/${desdeBusquedaId}/ofertas`, { conductor_id: user.id, viaje_id: viaje.id });
+          toast("¡Viaje publicado y ofrecido al pasajero!", "success");
+          location.hash = "#/busco-viaje";
+        } catch (errOferta) {
+          toast(`El viaje se publicó, pero no se pudo ofrecer: ${errOferta.message}`, "error");
+          location.hash = `#/viaje/${viaje.id}`;
+        }
+        return;
+      }
       toast("¡Viaje publicado!", "success");
       location.hash = `#/viaje/${viaje.id}`;
     } catch (err) {
@@ -2000,6 +2024,419 @@ function wireSolicitudes(app) {
       }
     })
   );
+}
+
+// ---------------------------------------------------------------------------
+// BUSCO VIAJE (15 sep 2026, a pedido explícito del usuario) — acá el PASAJERO publica que busca
+// viaje (solo ciudades + fecha exacta o rango, SIN elegir punto de encuentro) y son los
+// CONDUCTORES los que le ofrecen un viaje puntual suyo. El pasajero ve todas las ofertas recibidas
+// y elige una — ver server/routes/busquedas.js para todo el backend (ya construido y probado) y
+// server/db.js para el esquema (busquedas_pasajero / ofertas_conductor). Mismo patrón de "subtabs"
+// que "Mis viajes" (ver mostrarSubtab más arriba) para las dos pestañas: pasajero / conductor.
+// ---------------------------------------------------------------------------
+async function viewBuscoViaje(app, query) {
+  const user = Session.get();
+  if (!user) {
+    app.innerHTML = `<div class="container-narrow"><div class="card">
+      <h2>Busco viaje</h2>
+      <p>Iniciá sesión para publicar que buscás un viaje, u ofrecerle uno a otro pasajero.</p>
+      <a href="#/login" class="btn btn-teal">Iniciar sesión</a>
+      <p class="muted" style="margin-top:10px">¿No tenés cuenta? <a href="#/registro/pasajero">Registrate</a></p>
+    </div></div>`;
+    return;
+  }
+  if (user.rol === "admin") {
+    app.innerHTML = `<div class="container-narrow"><div class="card">
+      <h2>Busco viaje</h2>
+      <div class="info-box">Las cuentas de administrador no pueden publicar ni ofrecer viajes.</div>
+    </div></div>`;
+    return;
+  }
+
+  const tabInicial = query && query.tab === "conductor" ? "conductor" : "pasajero";
+  app.innerHTML = `
+    <div class="container">
+      <div class="section-title" style="text-align:left;margin-top:10px"><h2>Busco viaje</h2></div>
+      <p class="muted" style="margin-top:-8px;margin-bottom:16px">Publicá que buscás un viaje a un destino en una fecha (o rango de fechas) y esperá que algún
+      conductor te ofrezca un lugar — o, si sos conductor, mirá quién está buscando y ofrecele un viaje tuyo.</p>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <button type="button" class="btn btn-sm" data-subtab-bv="pasajero">🧳 Busco un viaje</button>
+        <button type="button" class="btn btn-sm" data-subtab-bv="conductor">🚗 Ofrecer un viaje</button>
+      </div>
+      <div id="subtab-bv-pasajero"></div>
+      <div id="subtab-bv-conductor" style="display:none"></div>
+    </div>`;
+
+  const btnPasajero = app.querySelector('[data-subtab-bv="pasajero"]');
+  const btnConductor = app.querySelector('[data-subtab-bv="conductor"]');
+  const contPasajero = app.querySelector("#subtab-bv-pasajero");
+  const contConductor = app.querySelector("#subtab-bv-conductor");
+
+  function mostrarSubtabBv(cual) {
+    contPasajero.style.display = cual === "pasajero" ? "" : "none";
+    contConductor.style.display = cual === "conductor" ? "" : "none";
+    btnPasajero.className = cual === "pasajero" ? "btn btn-teal btn-sm" : "btn btn-outline btn-sm";
+    btnConductor.className = cual === "conductor" ? "btn btn-teal btn-sm" : "btn btn-outline btn-sm";
+    if (cual === "conductor" && !contConductor.dataset.cargado) {
+      contConductor.dataset.cargado = "1";
+      contConductor.innerHTML = `<p class="muted">Cargando...</p>`;
+      renderBuscoViajeConductor(contConductor, user);
+    }
+  }
+  btnPasajero.addEventListener("click", () => mostrarSubtabBv("pasajero"));
+  btnConductor.addEventListener("click", () => mostrarSubtabBv("conductor"));
+
+  contPasajero.innerHTML = `<p class="muted">Cargando...</p>`;
+  await renderBuscoViajePasajero(contPasajero, user);
+  mostrarSubtabBv(tabInicial);
+}
+
+function badgeEstadoBusqueda(estado) {
+  const map = {
+    abierta: `<span class="badge">Abierta — esperando ofertas</span>`,
+    cerrada: `<span class="badge teal">Cerrada — ya aceptaste una oferta</span>`,
+    cancelada: `<span class="badge orange">Cancelada</span>`,
+  };
+  return map[estado] || escapeHtml(estado);
+}
+
+function badgeEstadoOferta(estado) {
+  const map = {
+    pendiente: `<span class="badge">Pendiente</span>`,
+    aceptada: `<span class="badge teal">Aceptada</span>`,
+    rechazada: `<span class="badge orange">No elegida</span>`,
+    cancelada: `<span class="badge orange">Cancelada por el conductor</span>`,
+  };
+  return map[estado] || escapeHtml(estado);
+}
+
+async function renderBuscoViajePasajero(cont, user) {
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <h3>Publicar una búsqueda nueva</h3>
+      <p class="muted">Solo elegís las ciudades y la fecha — el punto de encuentro exacto se coordina después, directo con el
+      conductor que te ofrezca el viaje.</p>
+      <div id="busco-viaje-error"></div>
+      <form id="form-busco-viaje">
+        <div class="field-row">
+          <div class="field" data-ciudad-field="origen_ciudad">
+            <label>Salgo de</label>
+            ${selectCiudades("origen_ciudad", "", "Elegí origen", true)}
+          </div>
+          <div class="field" data-ciudad-field="destino_ciudad">
+            <label>Voy a</label>
+            ${selectCiudades("destino_ciudad", "", "Elegí destino", true)}
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Fecha</label>
+            <input type="date" name="fecha_desde" required>
+          </div>
+          <div class="field">
+            <label>Asientos que necesito</label>
+            <select name="asientos_necesarios">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+            </select>
+          </div>
+        </div>
+        <div class="checkbox-row"><input type="checkbox" id="chk-rango-fechas"><label for="chk-rango-fechas">Tengo un rango de fechas, no un día exacto</label></div>
+        <div class="field" id="field-fecha-hasta" style="display:none">
+          <label>Hasta</label>
+          <input type="date" name="fecha_hasta">
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px">Publicar búsqueda</button>
+      </form>
+    </div>
+    <div class="section-title" style="text-align:left"><h3>Mis búsquedas</h3></div>
+    <div id="lista-mis-busquedas"><p class="muted">Cargando...</p></div>
+  `;
+
+  const form = cont.querySelector("#form-busco-viaje");
+  const chkRango = cont.querySelector("#chk-rango-fechas");
+  const fieldHasta = cont.querySelector("#field-fecha-hasta");
+  chkRango.addEventListener("change", () => {
+    fieldHasta.style.display = chkRango.checked ? "" : "none";
+    if (!chkRango.checked) form.querySelector('[name="fecha_hasta"]').value = "";
+  });
+  mejorarBuscadorCiudades(cont);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const payload = {
+      pasajero_id: user.id,
+      origen_ciudad: fd.get("origen_ciudad"),
+      destino_ciudad: fd.get("destino_ciudad"),
+      fecha_desde: fd.get("fecha_desde"),
+      fecha_hasta: chkRango.checked ? fd.get("fecha_hasta") || null : null,
+      asientos_necesarios: Number(fd.get("asientos_necesarios")) || 1,
+    };
+    try {
+      const resp = await Api.post("/api/busquedas", payload);
+      cont.querySelector("#busco-viaje-error").innerHTML = "";
+      toast(resp.mensaje || "¡Búsqueda publicada!", "success");
+      form.reset();
+      fieldHasta.style.display = "none";
+      await cargarMisBusquedas(cont, user);
+    } catch (err) {
+      cont.querySelector("#busco-viaje-error").innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  });
+
+  await cargarMisBusquedas(cont, user);
+}
+
+async function cargarMisBusquedas(cont, user) {
+  const listaCont = cont.querySelector("#lista-mis-busquedas");
+  try {
+    const busquedas = await Api.get(`/api/busquedas/pasajero/${user.id}`);
+    if (busquedas.length === 0) {
+      listaCont.innerHTML = `<p class="muted">Todavía no publicaste ninguna búsqueda.</p>`;
+      return;
+    }
+    listaCont.innerHTML = busquedas.map((b) => busquedaPasajeroCardHtml(b)).join("");
+    listaCont.querySelectorAll("[data-cancelar-busqueda]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Cancelar esta búsqueda? Se rechazan automáticamente las ofertas pendientes que tenga.")) return;
+        try {
+          await Api.patch(`/api/busquedas/${btn.dataset.cancelarBusqueda}/cancelar`, { pasajero_id: user.id });
+          toast("Búsqueda cancelada.", "info");
+          await cargarMisBusquedas(cont, user);
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      })
+    );
+    listaCont.querySelectorAll("[data-aceptar-oferta]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (
+          !confirm(
+            `¿Confirmás que aceptás la oferta de ${btn.dataset.conductorNombre}? Las demás ofertas de esta búsqueda se cancelan automáticamente, y vas a tener que pagar la comisión para ver los datos de contacto del conductor.`
+          )
+        )
+          return;
+        try {
+          const resp = await Api.post(`/api/busquedas/ofertas/${btn.dataset.aceptarOferta}/aceptar`, { pasajero_id: user.id });
+          toast(resp.mensaje || "¡Oferta aceptada!", "success");
+          location.hash = "#/mis-viajes";
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      })
+    );
+  } catch (err) {
+    listaCont.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function busquedaPasajeroCardHtml(b) {
+  const rango = b.fecha_hasta && b.fecha_hasta !== b.fecha_desde ? `${fmtFecha(b.fecha_desde)} al ${fmtFecha(b.fecha_hasta)}` : fmtFecha(b.fecha_desde);
+  const ofertas = b.ofertas || [];
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
+        <div>
+          <strong>${escapeHtml(b.origen_ciudad)} → ${escapeHtml(b.destino_ciudad)}</strong>
+          <div class="muted" style="font-size:0.85rem">${rango} · ${b.asientos_necesarios} asiento(s)</div>
+        </div>
+        <div>${badgeEstadoBusqueda(b.estado)}</div>
+      </div>
+      ${
+        b.estado === "abierta"
+          ? `<button type="button" class="btn btn-outline btn-sm" style="margin-top:10px" data-cancelar-busqueda="${b.id}">Cancelar búsqueda</button>`
+          : ""
+      }
+      <div style="margin-top:12px">
+        ${
+          ofertas.length === 0
+            ? `<p class="muted" style="font-size:0.85rem">Todavía no te ofrecieron ningún viaje.</p>`
+            : ofertas.map((o) => ofertaEnBusquedaCardHtml(o, b)).join("")
+        }
+      </div>
+    </div>`;
+}
+
+function ofertaEnBusquedaCardHtml(o, busqueda) {
+  const nombreConductor = `${o.conductor_nombre || ""} ${o.conductor_apellido || ""}`.trim();
+  return `
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;border-top:1px solid var(--border,#e5e5e5);padding-top:10px;margin-top:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${avatarHtml(o.conductor_foto, o.conductor_nombre, o.conductor_apellido)}
+        <div>
+          <span>${escapeHtml(nombreConductor)}</span>
+          ${o.conductor_rating_count ? `<span class="muted"> · ★ ${o.conductor_rating_promedio}</span>` : ""}
+          <div class="muted" style="font-size:0.8rem">${fmtFecha(o.fecha_salida)} ${escapeHtml(o.hora_salida || "")} · ${fmtMoney(o.precio_por_asiento)}/asiento</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${badgeEstadoOferta(o.estado)}
+        ${
+          o.estado === "pendiente" && busqueda.estado === "abierta"
+            ? `<button type="button" class="btn btn-teal btn-sm" data-aceptar-oferta="${o.id}" data-conductor-nombre="${escapeHtml(nombreConductor)}">Aceptar</button>`
+            : ""
+        }
+      </div>
+    </div>`;
+}
+
+// Mismas condiciones de habilitación que viewPublicar (es_conductor + validación aprobada) — acá
+// solo se muestra un mensaje corto con el link correspondiente en vez de repetir toda la lógica de
+// esa pantalla, porque ofrecer un viaje no es un formulario nuevo: reusa #/publicar de siempre.
+function conductorHabilitadoParaOfrecer(user) {
+  if (user.rol === "admin") return { ok: false, mensaje: "Las cuentas de administrador no pueden ofrecer viajes." };
+  if (!user.es_conductor) {
+    if (user.conductor_estado_validacion === "pendiente") {
+      return { ok: false, mensaje: "Ya recibimos tu documentación de conductor y la estamos revisando. Te avisamos por WhatsApp en menos de 24 hs." };
+    }
+    return {
+      ok: false,
+      mensaje: `Para ofrecerle un viaje a un pasajero necesitás habilitar tu cuenta como conductor.`,
+      link: `<a href="#/perfil" class="btn btn-teal" style="margin-top:10px">Solicitarlo desde Mi perfil</a>`,
+    };
+  }
+  if (user.estado_validacion !== "aprobado") {
+    return { ok: false, mensaje: "Revisamos manualmente la documentación de cada perfil antes de habilitarlo. Te avisamos por WhatsApp en menos de 24 hs." };
+  }
+  return { ok: true };
+}
+
+async function renderBuscoViajeConductor(cont, user) {
+  const habilitado = conductorHabilitadoParaOfrecer(user);
+  if (!habilitado.ok) {
+    cont.innerHTML = `<div class="card"><div class="info-box">${escapeHtml(habilitado.mensaje)}</div>${habilitado.link || ""}</div>`;
+    return;
+  }
+
+  cont.innerHTML = `
+    <div class="section-title" style="text-align:left"><h3>Pasajeros buscando viaje</h3></div>
+    <div id="lista-busquedas-abiertas"><p class="muted">Cargando...</p></div>
+    <div class="section-title" style="text-align:left;margin-top:24px"><h3>Mis ofertas</h3></div>
+    <div id="lista-mis-ofertas"><p class="muted">Cargando...</p></div>
+  `;
+  await Promise.all([cargarBusquedasAbiertas(cont, user), cargarMisOfertas(cont, user)]);
+}
+
+async function cargarBusquedasAbiertas(cont, user) {
+  const listaCont = cont.querySelector("#lista-busquedas-abiertas");
+  try {
+    const busquedas = await Api.get("/api/busquedas/abiertas");
+    if (busquedas.length === 0) {
+      listaCont.innerHTML = `<p class="muted">No hay pasajeros buscando viaje por ahora.</p>`;
+      return;
+    }
+    listaCont.innerHTML = busquedas.map((b) => busquedaAbiertaCardHtml(b)).join("");
+    listaCont.querySelectorAll("[data-ofrecer-busqueda]").forEach((btn) =>
+      btn.addEventListener("click", () => abrirOfrecerViaje(listaCont, btn.dataset.ofrecerBusqueda, user, cont))
+    );
+  } catch (err) {
+    listaCont.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function busquedaAbiertaCardHtml(b) {
+  const nombrePasajero = `${b.pasajero_nombre || ""} ${b.pasajero_apellido || ""}`.trim();
+  const rango = b.fecha_hasta && b.fecha_hasta !== b.fecha_desde ? `${fmtFecha(b.fecha_desde)} al ${fmtFecha(b.fecha_hasta)}` : fmtFecha(b.fecha_desde);
+  return `
+    <div class="card" style="margin-bottom:14px" data-busqueda-card="${b.id}">
+      <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
+        <div>
+          <strong>${escapeHtml(b.origen_ciudad)} → ${escapeHtml(b.destino_ciudad)}</strong>
+          <div class="muted" style="font-size:0.85rem">${rango} · ${b.asientos_necesarios} asiento(s)</div>
+          <div class="muted" style="font-size:0.8rem">${escapeHtml(nombrePasajero)}${b.pasajero_rating_count ? ` · ★ ${b.pasajero_rating_promedio}` : ""} · ${tiempoEsperando(b.created_at)}</div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" data-ofrecer-busqueda="${b.id}">Ofrecer un viaje</button>
+      </div>
+      <div data-ofrecer-panel="${b.id}" style="margin-top:12px"></div>
+    </div>`;
+}
+
+// Al hacer clic en "Ofrecer un viaje": busca si el conductor ya tiene algún viaje publicado que le
+// sirva a esta búsqueda (mismas ciudades, dentro del rango de fechas, con asientos libres) — si
+// tiene, lo deja elegir de una con un solo clic más; si no tiene ninguno, lo manda a publicar uno
+// nuevo (#/publicar?desde_busqueda=<id>, ver viewPublicar más arriba) que se lo ofrece solo apenas
+// se publica.
+async function abrirOfrecerViaje(listaCont, busquedaId, user, contPadre) {
+  const panel = listaCont.querySelector(`[data-ofrecer-panel="${busquedaId}"]`);
+  panel.innerHTML = `<p class="muted" style="font-size:0.85rem">Buscando tus viajes que sirvan para esto…</p>`;
+  let viajes;
+  try {
+    viajes = await Api.get(`/api/busquedas/${busquedaId}/mis-viajes-conductor?conductor_id=${encodeURIComponent(user.id)}`);
+  } catch (err) {
+    panel.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  if (viajes.length === 0) {
+    panel.innerHTML = `<div class="info-box">No tenés ningún viaje publicado que le sirva a esta búsqueda todavía.
+      <a href="#/publicar?desde_busqueda=${encodeURIComponent(busquedaId)}" class="btn btn-teal btn-sm" style="margin-top:8px;display:inline-block">Publicar un viaje nuevo para esto</a></div>`;
+    return;
+  }
+  panel.innerHTML = `
+    <div class="field" style="margin-bottom:8px">
+      <label>Elegí cuál de tus viajes ofrecerle</label>
+      <select data-select-viaje-oferta>
+        ${viajes
+          .map((v) => `<option value="${v.id}">${fmtFecha(v.fecha_salida)} ${escapeHtml(v.hora_salida || "")} · ${fmtMoney(v.precio_por_asiento)}/asiento · ${v.asientos_disponibles} libres</option>`)
+          .join("")}
+      </select>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" data-confirmar-oferta="${busquedaId}">Confirmar oferta</button>
+    <a href="#/publicar?desde_busqueda=${encodeURIComponent(busquedaId)}" class="muted" style="margin-left:10px;font-size:0.85rem">o publicá uno nuevo para esto</a>
+  `;
+  panel.querySelector("[data-confirmar-oferta]").addEventListener("click", async () => {
+    const viajeId = panel.querySelector("[data-select-viaje-oferta]").value;
+    try {
+      const resp = await Api.post(`/api/busquedas/${busquedaId}/ofertas`, { conductor_id: user.id, viaje_id: viajeId });
+      toast(resp.mensaje || "¡Oferta enviada!", "success");
+      await Promise.all([cargarBusquedasAbiertas(contPadre, user), cargarMisOfertas(contPadre, user)]);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+async function cargarMisOfertas(cont, user) {
+  const listaCont = cont.querySelector("#lista-mis-ofertas");
+  try {
+    const ofertas = await Api.get(`/api/busquedas/ofertas/conductor/${user.id}`);
+    if (ofertas.length === 0) {
+      listaCont.innerHTML = `<p class="muted">Todavía no le ofreciste un viaje a nadie.</p>`;
+      return;
+    }
+    listaCont.innerHTML = ofertas.map((o) => miOfertaCardHtml(o)).join("");
+    listaCont.querySelectorAll("[data-cancelar-oferta]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Cancelar esta oferta?")) return;
+        try {
+          await Api.patch(`/api/busquedas/ofertas/${btn.dataset.cancelarOferta}/cancelar`, { conductor_id: user.id });
+          toast("Oferta cancelada.", "info");
+          await cargarMisOfertas(cont, user);
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      })
+    );
+  } catch (err) {
+    listaCont.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function miOfertaCardHtml(o) {
+  const nombrePasajero = `${o.pasajero_nombre || ""} ${o.pasajero_apellido || ""}`.trim();
+  const rango = o.fecha_hasta && o.fecha_hasta !== o.fecha_desde ? `${fmtFecha(o.fecha_desde)} al ${fmtFecha(o.fecha_hasta)}` : fmtFecha(o.fecha_desde);
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
+        <div>
+          <strong>${escapeHtml(nombrePasajero)}</strong>
+          <div class="muted" style="font-size:0.85rem">${rango} · ${o.asientos_necesarios} asiento(s)</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${badgeEstadoOferta(o.estado)}
+          ${o.estado === "pendiente" ? `<button type="button" class="btn btn-outline btn-sm" data-cancelar-oferta="${o.id}">Cancelar</button>` : ""}
+        </div>
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------

@@ -291,6 +291,48 @@ async function initSchema() {
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos INTEGER DEFAULT 0;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos_at TEXT;
 
+    -- "Busco viaje" (15 sep 2026, a pedido explícito del usuario: "quiero una sección donde los
+    -- pasajeros puedan publicar que buscan viaje, en una fecha exacta o rango de fechas, que solo
+    -- elijan las ciudades, no el punto de encuentro... estos viajes lo pueden agarrar los
+    -- conductores... pasajero publica, conductor ofrece viaje... y pasajero acepta") — flujo
+    -- INVERSO al de siempre: hasta ahora solo el conductor publicaba un viaje con fecha/hora/precio
+    -- fijos y el pasajero reservaba (ver "reservas" más abajo). Acá el PASAJERO publica que busca
+    -- viaje (solo ciudades + fecha exacta o rango, sin punto de encuentro — eso lo define el viaje
+    -- real del conductor más adelante) y son los CONDUCTORES los que ofrecen. Fecha exacta se
+    -- guarda con fecha_desde = fecha_hasta.
+    --
+    -- Decisión de concurrencia (elegida por el usuario vía AskUserQuestion, 15 sep 2026): pueden
+    -- ofrecer VARIOS conductores a la vez a la misma búsqueda — el pasajero ve todas las ofertas y
+    -- elige una; al aceptar, las demás ofertas pendientes de esa búsqueda se rechazan solas y la
+    -- búsqueda se cierra (ver aceptarOferta() en server/routes/busquedas.js).
+    CREATE TABLE IF NOT EXISTS busquedas_pasajero (
+      id TEXT PRIMARY KEY,
+      pasajero_id TEXT NOT NULL REFERENCES usuarios(id),
+      origen_ciudad TEXT NOT NULL,
+      destino_ciudad TEXT NOT NULL,
+      fecha_desde TEXT NOT NULL,
+      fecha_hasta TEXT NOT NULL,
+      asientos_necesarios INTEGER NOT NULL DEFAULT 1,
+      estado TEXT NOT NULL DEFAULT 'abierta' CHECK (estado IN ('abierta','cerrada','cancelada')),
+      created_at TEXT NOT NULL
+    );
+
+    -- Una oferta = un conductor dice "yo te llevo" ofreciendo un viaje PUNTUAL suyo (ya publicado de
+    -- antes, o uno nuevo que publica para esto — ver ofrecer() en server/routes/busquedas.js) para
+    -- la búsqueda de un pasajero. viaje_id nunca es null: toda oferta está atada a un viaje real de
+    -- siempre, con su propio precio/punto de encuentro/ciudades intermedias ya calculados — así esta
+    -- feature nueva reutiliza 100% del motor de precios y de "reservas" que ya existe, en vez de
+    -- inventar un cálculo de precio paralelo.
+    CREATE TABLE IF NOT EXISTS ofertas_conductor (
+      id TEXT PRIMARY KEY,
+      busqueda_id TEXT NOT NULL REFERENCES busquedas_pasajero(id),
+      conductor_id TEXT NOT NULL REFERENCES usuarios(id),
+      viaje_id TEXT NOT NULL REFERENCES viajes(id),
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','aceptada','rechazada','cancelada')),
+      created_at TEXT NOT NULL,
+      actualizado_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS movimientos_cuenta (
       id TEXT PRIMARY KEY,
       usuario_id TEXT NOT NULL REFERENCES usuarios(id),

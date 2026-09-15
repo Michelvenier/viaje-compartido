@@ -138,6 +138,9 @@ textarea { resize: vertical; min-height: 70px; }
 .trip-price .amount { font-size: 1.4rem; font-weight: 800; color: var(--black); }
 .badge { display: inline-block; background: var(--gray-100); color: var(--black); font-size: 0.75rem; font-weight: 700; padding: 3px 9px; border-radius: 20px; margin-right: 4px; }
 .badge.orange { background: var(--near-black); color: var(--white); }
+/* "Busco viaje" (15 sep 2026): estado final positivo (búsqueda cerrada / oferta aceptada) — mismo
+patrón que .badge.orange de arriba, pero con --success para diferenciarlo de un estado de alerta. */
+.badge.teal { background: var(--success); color: var(--white); }
 .stars { color: #f0a500; font-weight: 700; }
 
 /* ---------- Accordion ---------- */
