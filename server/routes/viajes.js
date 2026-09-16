@@ -85,8 +85,12 @@ function filaViaje(row) {
 // "pasajeros confirmados" más abajo: que quien elige un viaje pueda decidir con más información.
 async function conConductor(row) {
   const viaje = filaViaje(row);
+  // declara_seguro_vtv_al_dia / _at (16 sep 2026): la declaración de seguro y VTV al día que hace el
+  // conductor al inscribirse (o al pedir la habilitación desde "Mi perfil"), para mostrarla en la
+  // ficha del viaje — ver renderSolicitudConductorHtml/viewRegistro en js/views.js, donde se carga.
   const conductor = await db.get(
-    `SELECT id, nombre, apellido, foto_perfil, genero, rating_promedio, rating_count, estado_validacion
+    `SELECT id, nombre, apellido, foto_perfil, genero, rating_promedio, rating_count, estado_validacion,
+            declara_seguro_vtv_al_dia, declara_seguro_vtv_al_dia_at
      FROM usuarios WHERE id = ?`,
     [viaje.conductor_id]
   );

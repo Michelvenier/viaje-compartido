@@ -309,10 +309,15 @@ async function viewDetalle(app, params) {
     },
     {
       titulo: "Validación de este conductor",
-      html: `<p>Revisamos manualmente su DNI, licencia de conducir, cédula del vehículo, seguro y constancia de VTV vigente (con su fecha
-      de vencimiento) antes de habilitarlo a publicar viajes. Esto es una verificación documental que busca reducir riesgos, no una
-      garantía de que no vaya a ocurrir un problema ni una certificación sobre su conducta futura. Coordiná el encuentro en un lugar
-      público y compartí tu viaje con alguien de confianza. <a href="#/terminos">Ver los Términos y Condiciones completos →</a></p>`,
+      html: `<p>Revisamos manualmente su DNI y licencia de conducir antes de habilitarlo a publicar viajes. El seguro del vehículo y la
+      VTV no los verificamos con documentación: ${
+        c.declara_seguro_vtv_al_dia
+          ? "el conductor declaró tenerlos vigentes y al día" + (c.declara_seguro_vtv_al_dia_at ? " (" + fmtFecha(c.declara_seguro_vtv_al_dia_at.slice(0, 10)) + ")" : "") + "."
+          : "este conductor todavía no completó esa declaración."
+      } Esto es una verificación documental (DNI y licencia) más una declaración del conductor (seguro y VTV) que buscan reducir
+      riesgos, no una garantía de que no vaya a ocurrir un problema ni una certificación sobre su conducta futura. Coordiná el
+      encuentro en un lugar público y compartí tu viaje con alguien de confianza. <a href="#/terminos">Ver los Términos y Condiciones
+      completos →</a></p>`,
     },
     {
       titulo: "Lo que NO cubre Ruta Compartida",
@@ -1441,14 +1446,6 @@ function viewRegistro(app, params) {
           ${renderUploadField("doc_selfie", "Selfie de validación", "Sacate una foto sosteniendo tu DNI al lado de tu cara. La revisa manualmente nuestro equipo, no usamos reconocimiento facial automático.")}
           ${renderUploadField("doc_licencia_frente", "Licencia de conducir (frente)")}
           ${renderUploadField("doc_licencia_dorso", "Licencia de conducir (dorso)")}
-          ${renderUploadField("doc_cedula_frente", "Cédula verde / azul (frente)")}
-          ${renderUploadField("doc_cedula_dorso", "Cédula verde / azul (dorso)")}
-          ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de la tarjeta de seguro que te pide la caminera en cualquier control de ruta.")}
-          ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
-          <div class="field">
-            <label>Fecha de vencimiento de la VTV</label>
-            <input type="date" id="f-vtv-vencimiento" value="${escapeHtml(data.vtv_vencimiento || "")}">
-          </div>
           <div class="checkbox-row">
             <input type="checkbox" id="f-reglas" ${data.acepta_reglas ? "checked" : ""}>
             <label for="f-reglas">Leí y acepto los <a href="#/terminos" target="_blank">Términos y Condiciones</a>, las
@@ -1458,6 +1455,10 @@ function viewRegistro(app, params) {
           <div class="checkbox-row">
             <input type="checkbox" id="f-seguro-carpooling" ${data.declara_seguro_carpooling ? "checked" : ""}>
             <label for="f-seguro-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="f-seguro-vtv-al-dia" ${data.declara_seguro_vtv_al_dia ? "checked" : ""}>
+            <label for="f-seguro-vtv-al-dia">Declaro que tengo el seguro del vehículo y la VTV vigentes y al día.</label>
           </div>
         `;
       } else {
@@ -1619,13 +1620,9 @@ function viewRegistro(app, params) {
           doc_selfie: getUpload("doc_selfie") || data.doc_selfie,
           doc_licencia_frente: getUpload("doc_licencia_frente") || data.doc_licencia_frente,
           doc_licencia_dorso: getUpload("doc_licencia_dorso") || data.doc_licencia_dorso,
-          doc_cedula_frente: getUpload("doc_cedula_frente") || data.doc_cedula_frente,
-          doc_cedula_dorso: getUpload("doc_cedula_dorso") || data.doc_cedula_dorso,
-          doc_seguro: getUpload("doc_seguro") || data.doc_seguro,
-          doc_vtv: getUpload("doc_vtv") || data.doc_vtv,
-          vtv_vencimiento: q("#f-vtv-vencimiento")?.value,
           acepta_reglas: q("#f-reglas")?.checked,
           declara_seguro_carpooling: q("#f-seguro-carpooling")?.checked,
+          declara_seguro_vtv_al_dia: q("#f-seguro-vtv-al-dia")?.checked,
         });
       } else {
         Object.assign(data, {
@@ -1679,15 +1676,9 @@ function viewRegistro(app, params) {
       if (!data.doc_dni_frente || !data.doc_dni_dorso) errores.push("Subí ambas fotos del DNI.");
       if (!data.doc_selfie) errores.push("Subí la selfie de validación.");
       if (!data.doc_licencia_frente || !data.doc_licencia_dorso) errores.push("Subí ambas fotos de tu licencia de conducir (frente y dorso).");
-      if (!data.doc_cedula_frente || !data.doc_cedula_dorso) errores.push("Subí ambas fotos de la cédula verde/azul (frente y dorso).");
-      if (!data.doc_seguro) errores.push("Falta la foto o captura del seguro vigente.");
-      if (!data.doc_vtv) errores.push("Subí la foto de la oblea o constancia de tu VTV vigente.");
-      if (!data.vtv_vencimiento) errores.push("Indicá la fecha de vencimiento de tu VTV.");
-      else if (new Date(data.vtv_vencimiento) < new Date(new Date().toDateString())) {
-        errores.push("La fecha de vencimiento de tu VTV ya pasó.");
-      }
       if (!data.acepta_reglas) errores.push("Tenés que aceptar los Términos y Condiciones, las Reglas de la Ruta y la Política de Privacidad.");
       if (!data.declara_seguro_carpooling) errores.push("Tenés que confirmar la verificación de tu seguro para carpooling.");
+      if (!data.declara_seguro_vtv_al_dia) errores.push("Tenés que declarar que tenés el seguro y la VTV vigentes y al día.");
     }
     if (rol === "conductor" && step === 3) {
       if (!data.vehiculo_marca || !data.vehiculo_modelo || !data.vehiculo_patente) errores.push("Completá los datos del vehículo.");
@@ -2767,13 +2758,27 @@ function documentosUsuarioToggleHtml(u) {
         ? `${botonVerDocumento(u.doc_licencia_frente, "Licencia frente")}${botonVerDocumento(u.doc_licencia_dorso, "Licencia dorso")}`
         : botonVerDocumento(u.doc_licencia, "Licencia")
     );
+    // Cédula/seguro/VTV como documento a subir quedaron discontinuados el 16 sep 2026: a los
+    // conductores nuevos ya no se les pide subir estos archivos, solo declaran (checkbox, una sola
+    // vez al inscribirse o al pedir el rol de conductor) que el seguro y la VTV están al día. Para
+    // cuentas viejas que sí llegaron a cargar estos archivos, se los sigue mostrando acá
+    // (compatibilidad hacia atrás — no se borra nada de lo ya cargado).
+    if (u.doc_cedula_frente || u.doc_cedula_dorso || u.doc_cedula) {
+      botones.push(
+        u.doc_cedula_frente || u.doc_cedula_dorso
+          ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
+          : botonVerDocumento(u.doc_cedula, "Cédula")
+      );
+    }
+    if (u.doc_seguro) botones.push(botonVerDocumento(u.doc_seguro, "Seguro"));
+    if (u.doc_vtv) botones.push(botonVerDocumento(u.doc_vtv, "VTV"));
     botones.push(
-      u.doc_cedula_frente || u.doc_cedula_dorso
-        ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
-        : botonVerDocumento(u.doc_cedula, "Cédula")
+      `<span class="muted" style="display:block;width:100%">${
+        u.declara_seguro_vtv_al_dia
+          ? `✅ Declaró seguro y VTV al día${u.declara_seguro_vtv_al_dia_at ? " (" + fmtFecha(u.declara_seguro_vtv_al_dia_at.slice(0, 10)) + ")" : ""}`
+          : "Sin declaración de seguro/VTV al día"
+      }</span>`
     );
-    botones.push(botonVerDocumento(u.doc_seguro, "Seguro"));
-    botones.push(botonVerDocumento(u.doc_vtv, "VTV"));
   }
   return `
     <button type="button" class="btn btn-outline btn-sm" data-toggle-documentos="${u.id}">📄 Ver documentos</button>
@@ -3003,19 +3008,23 @@ async function viewAdmin(app) {
                         : ""
                     }
                     ${
-                      u.rol === "conductor"
+                      u.rol === "conductor" && (u.doc_cedula_frente || u.doc_cedula_dorso || u.doc_cedula)
                         ? u.doc_cedula_frente || u.doc_cedula_dorso
                           ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
                           : botonVerDocumento(u.doc_cedula, "Cédula")
                         : ""
                     }
-                    ${u.rol === "conductor" ? botonVerDocumento(u.doc_seguro, "Seguro") : ""}
+                    ${u.rol === "conductor" && u.doc_seguro ? botonVerDocumento(u.doc_seguro, "Seguro") : ""}
                   </div>
                   ${
                     u.rol === "conductor"
                       ? u.doc_vtv
                         ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span> ${botonVerDocumento(u.doc_vtv, "VTV")}`
-                        : `<br><span style="color:#b00020;font-weight:600">Sin constancia de VTV</span>`
+                        : `<br><span class="muted">${
+                            u.declara_seguro_vtv_al_dia
+                              ? "✅ Declaró seguro y VTV al día" + (u.declara_seguro_vtv_al_dia_at ? " (" + fmtFecha(u.declara_seguro_vtv_al_dia_at.slice(0, 10)) + ")" : "")
+                              : "Sin declaración de seguro/VTV al día"
+                          }</span>`
                       : ""
                   }
                 </td>
@@ -3050,16 +3059,22 @@ async function viewAdmin(app) {
                         : botonVerDocumento(u.doc_licencia, "Licencia")
                     }
                     ${
-                      u.doc_cedula_frente || u.doc_cedula_dorso
-                        ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
-                        : botonVerDocumento(u.doc_cedula, "Cédula")
+                      u.doc_cedula_frente || u.doc_cedula_dorso || u.doc_cedula
+                        ? u.doc_cedula_frente || u.doc_cedula_dorso
+                          ? `${botonVerDocumento(u.doc_cedula_frente, "Cédula frente")}${botonVerDocumento(u.doc_cedula_dorso, "Cédula dorso")}`
+                          : botonVerDocumento(u.doc_cedula, "Cédula")
+                        : ""
                     }
-                    ${botonVerDocumento(u.doc_seguro, "Seguro")}
+                    ${u.doc_seguro ? botonVerDocumento(u.doc_seguro, "Seguro") : ""}
                   </div>
                   ${
                     u.doc_vtv
                       ? `<br><span style="${u.vtv_vencimiento && new Date(u.vtv_vencimiento) < new Date(new Date().toDateString()) ? "color:#b00020;font-weight:600" : ""}">VTV: ${u.vtv_vencimiento ? "vence " + fmtFecha(u.vtv_vencimiento) : "sin fecha"}</span> ${botonVerDocumento(u.doc_vtv, "VTV")}`
-                      : `<br><span style="color:#b00020;font-weight:600">Sin constancia de VTV</span>`
+                      : `<br><span class="muted">${
+                          u.declara_seguro_vtv_al_dia
+                            ? "✅ Declaró seguro y VTV al día" + (u.declara_seguro_vtv_al_dia_at ? " (" + fmtFecha(u.declara_seguro_vtv_al_dia_at.slice(0, 10)) + ")" : "")
+                            : "Sin declaración de seguro/VTV al día"
+                        }</span>`
                   }
                   <br><span class="muted" style="font-size:0.78rem">${escapeHtml(u.vehiculo_marca || "")} ${escapeHtml(u.vehiculo_modelo || "")}${u.vehiculo_patente ? " · " + escapeHtml(u.vehiculo_patente) : ""}</span>
                 </td>
@@ -3487,20 +3502,12 @@ function renderSolicitudConductorHtml(fresco) {
         rechazado
           ? `<div class="error-box" style="margin-bottom:10px">Tu pedido anterior fue rechazado${fresco.conductor_motivo_rechazo ? `: ${escapeHtml(fresco.conductor_motivo_rechazo)}` : "."} Podés volver a intentarlo con la documentación corregida.</div>`
           : `<p class="muted">Además de reservar como pasajero, podés habilitar tu cuenta para publicar viajes — necesitamos tu
-             licencia, cédula, seguro, VTV y los datos de tu auto.</p>`
+             licencia de conducir y los datos de tu auto.</p>`
       }
       <button type="button" class="btn btn-teal" id="btn-abrir-solicitud-conductor">${rechazado ? "Volver a solicitarlo" : "Quiero publicar viajes también"}</button>
       <div id="form-solicitud-conductor" hidden style="margin-top:14px">
         ${renderUploadField("doc_licencia_frente", "Licencia de conducir (frente)")}
         ${renderUploadField("doc_licencia_dorso", "Licencia de conducir (dorso)")}
-        ${renderUploadField("doc_cedula_frente", "Cédula verde / azul (frente)")}
-        ${renderUploadField("doc_cedula_dorso", "Cédula verde / azul (dorso)")}
-        ${renderUploadField("doc_seguro", "Seguro vigente", "Subí una captura o foto de la tarjeta de seguro que te pide la caminera en cualquier control de ruta.")}
-        ${renderUploadField("doc_vtv", "Constancia de VTV vigente", "Subí una foto de la oblea o el comprobante de la Verificación Técnica Vehicular (no alcanza con declararlo).")}
-        <div class="field">
-          <label>Fecha de vencimiento de la VTV</label>
-          <input type="date" id="f-solconductor-vtv-vencimiento">
-        </div>
         <div class="field-row">
           <div class="field"><label>Marca</label><input type="text" id="f-solconductor-marca" placeholder="Ej: Renault"></div>
           <div class="field"><label>Modelo</label><input type="text" id="f-solconductor-modelo" placeholder="Ej: Sandero"></div>
@@ -3521,6 +3528,10 @@ function renderSolicitudConductorHtml(fresco) {
           <input type="checkbox" id="f-solconductor-carpooling">
           <label for="f-solconductor-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte
           de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="f-solconductor-seguro-vtv-al-dia">
+          <label for="f-solconductor-seguro-vtv-al-dia">Declaro que tengo el seguro del vehículo y la VTV vigentes y al día.</label>
         </div>
         <div id="solicitud-conductor-error"></div>
         <button type="button" class="btn btn-primary" id="btn-enviar-solicitud-conductor" style="margin-top:8px">Enviar documentación</button>
@@ -3638,14 +3649,14 @@ async function viewPerfil(app) {
         errEl.innerHTML = `<div class="error-box">Tenés que confirmar la cobertura del seguro para carpooling antes de continuar.</div>`;
         return;
       }
+      if (!q("#f-solconductor-seguro-vtv-al-dia").checked) {
+        errEl.innerHTML = `<div class="error-box">Tenés que declarar que tenés el seguro y la VTV vigentes y al día.</div>`;
+        return;
+      }
       const body = {
         doc_licencia_frente: getUpload("doc_licencia_frente"),
         doc_licencia_dorso: getUpload("doc_licencia_dorso"),
-        doc_cedula_frente: getUpload("doc_cedula_frente"),
-        doc_cedula_dorso: getUpload("doc_cedula_dorso"),
-        doc_seguro: getUpload("doc_seguro"),
-        doc_vtv: getUpload("doc_vtv"),
-        vtv_vencimiento: q("#f-solconductor-vtv-vencimiento").value,
+        declara_seguro_vtv_al_dia: q("#f-solconductor-seguro-vtv-al-dia").checked,
         vehiculo_marca: q("#f-solconductor-marca").value,
         vehiculo_modelo: q("#f-solconductor-modelo").value,
         vehiculo_color: q("#f-solconductor-color").value,

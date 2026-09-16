@@ -104,20 +104,25 @@ const TERMINOS_SECTIONS = [
     titulo: "7. Verificación documental que realiza Ruta Compartida",
     html: `
       <p>Para los conductores, antes de habilitar la cuenta un integrante del equipo de Ruta Compartida revisa manualmente la
-      documentación cargada: DNI, una selfie de validación, licencia de conducir, cédula del vehículo, póliza de seguro y constancia
-      de VTV vigente con su fecha de vencimiento.</p>
+      documentación cargada: DNI, una selfie de validación y licencia de conducir.</p>
+      <p>El seguro del vehículo y la VTV (Verificación Técnica Vehicular) <strong>no se verifican con documentación</strong>: el
+      conductor declara, con un checkbox al inscribirse o al pedir la habilitación para publicar viajes, que los tiene vigentes y al
+      día. Esa declaración queda registrada con fecha, se muestra a los pasajeros en la ficha de cada viaje que publica ese conductor,
+      y —al igual que la confirmación de cobertura para carpooling descripta en la sección anterior— es una medida de reducción de
+      riesgo basada en la palabra del conductor, no una certificación de Ruta Compartida sobre el estado real del seguro o la VTV del
+      vehículo.</p>
       <p>Para los pasajeros, la cuenta se habilita automáticamente apenas se guardan el DNI y la selfie de validación cargados, sin
       esperar una revisión manual previa — Ruta Compartida conserva esa documentación y puede revisarla en cualquier momento
       (incluido después de habilitada la cuenta), por ejemplo ante un reporte o una sospecha de irregularidad, y puede suspender la
       cuenta si corresponde.</p>
-      <p>Para que quede claro qué promete la revisión manual (conductores) y qué no: es una revisión humana de que los documentos
-      existen, parecen auténticos y están dentro de su fecha de vigencia declarada. <strong>No es</strong> una certificación pública
-      de autenticidad, ni una investigación de antecedentes, ni una evaluación psicológica, ni una inspección mecánica del vehículo,
-      ni una garantía sobre el comportamiento futuro de la persona. Cuando se compara una selfie con la foto del DNI, lo hace una
-      persona del equipo — Ruta Compartida <strong>no utiliza software de reconocimiento facial automatizado</strong> para esta
-      verificación.</p>
-      <p>Que un perfil esté habilitado significa únicamente que cargó (y, en el caso de los conductores, que superó la revisión de)
-      estos controles documentales. No es una recomendación personal ni una garantía de que el viaje transcurrirá sin incidentes.</p>
+      <p>Para que quede claro qué promete la revisión manual (conductores) y qué no: es una revisión humana de que el DNI, la selfie y
+      la licencia existen y parecen auténticos. <strong>No es</strong> una certificación pública de autenticidad, ni una investigación
+      de antecedentes, ni una evaluación psicológica, ni una inspección mecánica del vehículo, ni una garantía sobre el comportamiento
+      futuro de la persona. Cuando se compara una selfie con la foto del DNI, lo hace una persona del equipo — Ruta Compartida
+      <strong>no utiliza software de reconocimiento facial automatizado</strong> para esta verificación.</p>
+      <p>Que un perfil esté habilitado significa únicamente que cargó (y, en el caso de los conductores, que superó la revisión de) el
+      DNI, la selfie y la licencia, y que declaró tener el seguro y la VTV al día. No es una recomendación personal ni una garantía de
+      que el viaje transcurrirá sin incidentes.</p>
     `,
   },
   {
@@ -213,9 +218,9 @@ const REGLAS_SECTIONS = [
       <ul>
         <li>DNI (frente y dorso) y una selfie sosteniéndolo junto a su cara.</li>
         <li>Licencia de conducir vigente.</li>
-        <li>Cédula verde o azul que autorice el vehículo a circular.</li>
-        <li>Póliza de seguro vigente, habiendo confirmado con su aseguradora que cubre carpooling.</li>
-        <li>Constancia de VTV vigente (foto de la oblea o el comprobante), con su fecha de vencimiento.</li>
+        <li>Declarar (con un checkbox, no documentación) que tiene el seguro del vehículo y la VTV vigentes y al día, habiendo
+        confirmado con su aseguradora que la póliza cubre carpooling. Esa declaración se muestra a los pasajeros en la ficha de cada
+        viaje que publica.</li>
       </ul>
       <h4>Pasajero</h4>
       <p>Es el usuario que necesita trasladarse y se suma al trayecto del conductor. Para habilitarse necesita:</p>
@@ -333,8 +338,9 @@ const REGLAS_SECTIONS = [
     titulo: "4. Derechos y obligaciones del conductor",
     html: `
       <ul>
-        <li><strong>Documentación:</strong> el vehículo debe tener VTV vigente, cédula correspondiente y seguro con cobertura para
-        carpooling. Debe respetar las velocidades máximas de la ruta.</li>
+        <li><strong>Documentación:</strong> el vehículo debe tener VTV vigente y seguro con cobertura para carpooling — el conductor
+        lo declara al inscribirse y esa declaración se muestra a los pasajeros, no se verifica con documentación. Debe respetar las
+        velocidades máximas de la ruta.</li>
         <li><strong>Estado de la unidad:</strong> mantenimiento básico al día (luces, frenos, neumáticos en condiciones para ruta).</li>
         <li><strong>Hoja de ruta:</strong> se compromete a seguir el trayecto publicado, sin desvíos por trámites personales que
         retrasen al pasajero (salvo emergencia).</li>
@@ -380,8 +386,8 @@ const PRIVACIDAD_SECTIONS = [
         <li><strong>Datos de identidad:</strong> nombre, apellido, edad, DNI, domicilio.</li>
         <li><strong>Datos de contacto:</strong> email y teléfono.</li>
         <li><strong>Documentos e imágenes de validación:</strong> foto del DNI (frente y dorso) y una selfie de validación. Para
-        conductores, además: licencia de conducir, cédula del vehículo, póliza de seguro y constancia de VTV con su fecha de
-        vencimiento.</li>
+        conductores, además: licencia de conducir. El seguro del vehículo y la VTV no se cargan como documento: el conductor declara
+        (checkbox con fecha) que están vigentes y al día.</li>
         <li><strong>Datos del vehículo</strong> (solo conductores): marca, modelo, color, patente, foto y cantidad de asientos.</li>
         <li><strong>Datos de cobro</strong> (solo pasajeros, opcional): alias de Mercado Pago o CBU/CVU, únicamente para poder
         reembolsarte si alguna vez corresponde.</li>
@@ -518,7 +524,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Qué documentación me piden para registrarme?",
-    a: "A todos: DNI, selfie de validación, celular y email. A los conductores además: licencia de conducir, cédula verde/azul, seguro vigente y constancia de VTV con su fecha de vencimiento (no alcanza con declararlo). El perfil de pasajero se aprueba automáticamente apenas subís esas fotos. El de conductor lo revisamos manualmente y te avisamos por WhatsApp en menos de 24 hs.",
+    a: "A todos: DNI, selfie de validación, celular y email. A los conductores además: licencia de conducir, y declarar (con un checkbox, sin subir documentación) que tienen el seguro del vehículo y la VTV vigentes y al día. El perfil de pasajero se aprueba automáticamente apenas subís esas fotos. El de conductor lo revisamos manualmente y te avisamos por WhatsApp en menos de 24 hs.",
   },
   {
     q: "¿Puedo ver la foto, el auto o el teléfono del conductor antes de reservar?",

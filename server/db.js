@@ -291,6 +291,29 @@ async function initSchema() {
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos INTEGER DEFAULT 0;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acepta_terminos_at TEXT;
 
+    -- Documentación de conductor simplificada: seguro y VTV pasan de "subir un comprobante" a una
+    -- DECLARACIÓN firmada (16 sep 2026, a pedido explícito del usuario: "al conductor solo le
+    -- pedimos a la hora de inscribirse, dni, licencia de conducir y foto, nada mas. pero despues que
+    -- firme que tiene seguro y vtv al dia" — decidido junto con el usuario vía AskUserQuestion que
+    -- la cédula del auto TAMBIÉN se saca del registro, y que esta declaración se muestra en la ficha
+    -- de cada viaje publicado para que la vea el pasajero). De acá en adelante, registrar("conductor")
+    -- y solicitarConductor() (server/routes/usuarios.js) YA NO piden doc_cedula_frente/dorso,
+    -- doc_seguro, doc_vtv ni vtv_vencimiento — piden en cambio que tilde este checkbox. Las columnas
+    -- viejas de cédula/seguro/VTV (arriba, y las de compatibilidad "doc_licencia"/"doc_cedula" del 27
+    -- ago 2026) NO se borran ni se tocan — una cuenta de conductor registrada ANTES de este cambio ya
+    -- tiene esos documentos subidos y revisados, así que siguen siendo válidos y visibles para el
+    -- admin tal cual estaban; simplemente no se le vuelve a pedir nada nuevo con este formato.
+    --   - declara_seguro_vtv_al_dia: 1 si el conductor tildó el checkbox al registrarse o al pedir la
+    --     capacidad de conductor desde "Mi perfil" — obligatorio para poder ser conductor de acá en
+    --     adelante, mismo criterio que acepta_terminos arriba (si no lo tilda, el alta se rechaza).
+    --   - declara_seguro_vtv_al_dia_at: fecha/hora exacta de la declaración.
+    -- Cuentas de conductor ya aprobadas ANTES de este cambio quedan con estos dos campos en NULL/0 —
+    -- no se migra nada retroactivamente (ya tienen sus documentos de seguro/VTV subidos de antes,
+    -- que es una constancia más fuerte que una simple declaración) — mismo criterio ya usado para
+    -- acepta_terminos.
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS declara_seguro_vtv_al_dia INTEGER DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS declara_seguro_vtv_al_dia_at TEXT;
+
     -- "Busco viaje" (15 sep 2026, a pedido explícito del usuario: "quiero una sección donde los
     -- pasajeros puedan publicar que buscan viaje, en una fecha exacta o rango de fechas, que solo
     -- elijan las ciudades, no el punto de encuentro... estos viajes lo pueden agarrar los

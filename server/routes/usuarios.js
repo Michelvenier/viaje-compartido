@@ -62,18 +62,13 @@ function registrar(rol) {
       if (!body.doc_licencia_frente || !body.doc_licencia_dorso) {
         return badRequest(res, "Falta la foto de la licencia de conducir (frente y dorso).");
       }
-      if (!body.doc_cedula_frente || !body.doc_cedula_dorso) {
-        return badRequest(res, "Falta la foto de la cédula verde/azul (frente y dorso).");
-      }
-      if (!body.doc_seguro) return badRequest(res, "Falta la foto/captura de la póliza de seguro vigente.");
-      if (!body.doc_vtv) {
-        return badRequest(res, "Falta la foto de la oblea o constancia de VTV vigente.");
-      }
-      if (!body.vtv_vencimiento) {
-        return badRequest(res, "Indicá la fecha de vencimiento de tu VTV.");
-      }
-      if (new Date(body.vtv_vencimiento) < new Date(new Date().toDateString())) {
-        return badRequest(res, "La fecha de vencimiento de tu VTV ya pasó. Actualizala antes de registrarte como conductor.");
+      // Simplificado (16 sep 2026, a pedido explícito del usuario: "al conductor solo le pedimos a
+      // la hora de inscribirse, dni, licencia de conducir y foto, nada mas") — ya NO se pide subir
+      // cédula del auto, póliza de seguro ni oblea/constancia de VTV. En su lugar, el conductor
+      // declara con este checkbox que tiene el seguro y la VTV vigentes y al día — ver la migración
+      // correspondiente en server/db.js para el detalle completo de la decisión.
+      if (!body.declara_seguro_vtv_al_dia) {
+        return badRequest(res, "Tenés que declarar que tenés el seguro del vehículo y la VTV vigentes y al día para poder publicar viajes.");
       }
       if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
         return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
@@ -98,8 +93,9 @@ function registrar(rol) {
         doc_seguro, doc_vtv_declarada,
         doc_vtv, vtv_vencimiento,
         vehiculo_marca, vehiculo_modelo, vehiculo_color, vehiculo_patente, vehiculo_foto, vehiculo_asientos,
-        alias_cobro, password, created_at, acepta_terminos, acepta_terminos_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        alias_cobro, password, created_at, acepta_terminos, acepta_terminos_at,
+        declara_seguro_vtv_al_dia, declara_seguro_vtv_al_dia_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         rol,
@@ -132,12 +128,15 @@ function registrar(rol) {
         body.doc_selfie,
         body.doc_licencia_frente || null,
         body.doc_licencia_dorso || null,
-        body.doc_cedula_frente || null,
-        body.doc_cedula_dorso || null,
-        body.doc_seguro || null,
-        body.doc_vtv ? 1 : 0,
-        body.doc_vtv || null,
-        body.vtv_vencimiento || null,
+        // Cédula/seguro/VTV como documento ya NO se piden de acá en adelante (16 sep 2026, ver
+        // arriba y server/db.js) — quedan NULL en toda cuenta nueva; se reemplazan por el checkbox
+        // declara_seguro_vtv_al_dia, al final de esta lista.
+        null,
+        null,
+        null,
+        0,
+        null,
+        null,
         body.vehiculo_marca || null,
         body.vehiculo_modelo || null,
         body.vehiculo_color || null,
@@ -151,6 +150,10 @@ function registrar(rol) {
         // alta más arriba con badRequest() y nunca se llega a este INSERT.
         1,
         nowIso(),
+        // declara_seguro_vtv_al_dia: 1 solo para conductor (ya validado arriba, obligatorio); un
+        // pasajero no tiene auto, así que esto no aplica y queda en 0/null.
+        rol === "conductor" ? 1 : 0,
+        rol === "conductor" ? nowIso() : null,
       ]
     );
 
@@ -378,14 +381,10 @@ async function solicitarConductor(req, res, params) {
   if (!body.doc_licencia_frente || !body.doc_licencia_dorso) {
     return badRequest(res, "Falta la foto de la licencia de conducir (frente y dorso).");
   }
-  if (!body.doc_cedula_frente || !body.doc_cedula_dorso) {
-    return badRequest(res, "Falta la foto de la cédula verde/azul (frente y dorso).");
-  }
-  if (!body.doc_seguro) return badRequest(res, "Falta la foto/captura de la póliza de seguro vigente.");
-  if (!body.doc_vtv) return badRequest(res, "Falta la foto de la oblea o constancia de VTV vigente.");
-  if (!body.vtv_vencimiento) return badRequest(res, "Indicá la fecha de vencimiento de tu VTV.");
-  if (new Date(body.vtv_vencimiento) < new Date(new Date().toDateString())) {
-    return badRequest(res, "La fecha de vencimiento de tu VTV ya pasó.");
+  // Simplificado (16 sep 2026, mismo cambio y mismo motivo que registrar("conductor") más arriba) —
+  // ya NO se pide cédula/seguro/VTV como documento, se pide esta declaración en su lugar.
+  if (!body.declara_seguro_vtv_al_dia) {
+    return badRequest(res, "Tenés que declarar que tenés el seguro del vehículo y la VTV vigentes y al día para poder publicar viajes.");
   }
   if (!body.vehiculo_marca || !body.vehiculo_modelo || !body.vehiculo_patente) {
     return badRequest(res, "Completá marca, modelo y patente de tu vehículo.");
@@ -393,26 +392,22 @@ async function solicitarConductor(req, res, params) {
 
   await db.run(
     `UPDATE usuarios SET
-       doc_licencia_frente = ?, doc_licencia_dorso = ?, doc_cedula_frente = ?, doc_cedula_dorso = ?,
-       doc_seguro = ?, doc_vtv = ?, doc_vtv_declarada = 1, vtv_vencimiento = ?,
+       doc_licencia_frente = ?, doc_licencia_dorso = ?,
        vehiculo_marca = ?, vehiculo_modelo = ?, vehiculo_color = ?, vehiculo_patente = ?,
        vehiculo_foto = ?, vehiculo_asientos = ?,
+       declara_seguro_vtv_al_dia = 1, declara_seguro_vtv_al_dia_at = ?,
        conductor_estado_validacion = 'pendiente', conductor_motivo_rechazo = NULL, conductor_solicitado_at = ?
      WHERE id = ?`,
     [
       body.doc_licencia_frente,
       body.doc_licencia_dorso,
-      body.doc_cedula_frente,
-      body.doc_cedula_dorso,
-      body.doc_seguro,
-      body.doc_vtv,
-      body.vtv_vencimiento,
       body.vehiculo_marca,
       body.vehiculo_modelo,
       body.vehiculo_color || null,
       body.vehiculo_patente,
       body.vehiculo_foto || null,
       body.vehiculo_asientos || 3,
+      nowIso(),
       nowIso(),
       params.id,
     ]
