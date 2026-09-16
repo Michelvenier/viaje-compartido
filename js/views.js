@@ -1453,12 +1453,8 @@ function viewRegistro(app, params) {
               <a href="#/privacidad" target="_blank">Política de Privacidad</a> de Ruta Compartida.</label>
           </div>
           <div class="checkbox-row">
-            <input type="checkbox" id="f-seguro-carpooling" ${data.declara_seguro_carpooling ? "checked" : ""}>
-            <label for="f-seguro-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
-          </div>
-          <div class="checkbox-row">
             <input type="checkbox" id="f-seguro-vtv-al-dia" ${data.declara_seguro_vtv_al_dia ? "checked" : ""}>
-            <label for="f-seguro-vtv-al-dia">Declaro que tengo el seguro del vehículo y la VTV vigentes y al día.</label>
+            <label for="f-seguro-vtv-al-dia">Confirmo que cuento con un seguro actualizado a la fecha con cobertura de terceros completos, y que la VTV de mi vehículo está vigente.</label>
           </div>
         `;
       } else {
@@ -1621,7 +1617,6 @@ function viewRegistro(app, params) {
           doc_licencia_frente: getUpload("doc_licencia_frente") || data.doc_licencia_frente,
           doc_licencia_dorso: getUpload("doc_licencia_dorso") || data.doc_licencia_dorso,
           acepta_reglas: q("#f-reglas")?.checked,
-          declara_seguro_carpooling: q("#f-seguro-carpooling")?.checked,
           declara_seguro_vtv_al_dia: q("#f-seguro-vtv-al-dia")?.checked,
         });
       } else {
@@ -1677,7 +1672,6 @@ function viewRegistro(app, params) {
       if (!data.doc_selfie) errores.push("Subí la selfie de validación.");
       if (!data.doc_licencia_frente || !data.doc_licencia_dorso) errores.push("Subí ambas fotos de tu licencia de conducir (frente y dorso).");
       if (!data.acepta_reglas) errores.push("Tenés que aceptar los Términos y Condiciones, las Reglas de la Ruta y la Política de Privacidad.");
-      if (!data.declara_seguro_carpooling) errores.push("Tenés que confirmar la verificación de tu seguro para carpooling.");
       if (!data.declara_seguro_vtv_al_dia) errores.push("Tenés que declarar que tenés el seguro y la VTV vigentes y al día.");
     }
     if (rol === "conductor" && step === 3) {
@@ -3525,13 +3519,9 @@ function renderSolicitudConductorHtml(fresco) {
           </select>
         </div>
         <div class="checkbox-row">
-          <input type="checkbox" id="f-solconductor-carpooling">
-          <label for="f-solconductor-carpooling">Confirmo que verifiqué con mi compañía de seguros que mi póliza cubre el transporte
-          de pasajeros a cambio de una contribución a los gastos (carpooling), o que voy a verificarlo antes de mi primer viaje.</label>
-        </div>
-        <div class="checkbox-row">
           <input type="checkbox" id="f-solconductor-seguro-vtv-al-dia">
-          <label for="f-solconductor-seguro-vtv-al-dia">Declaro que tengo el seguro del vehículo y la VTV vigentes y al día.</label>
+          <label for="f-solconductor-seguro-vtv-al-dia">Confirmo que cuento con un seguro actualizado a la fecha con cobertura de
+          terceros completos, y que la VTV de mi vehículo está vigente.</label>
         </div>
         <div id="solicitud-conductor-error"></div>
         <button type="button" class="btn btn-primary" id="btn-enviar-solicitud-conductor" style="margin-top:8px">Enviar documentación</button>
@@ -3645,10 +3635,6 @@ async function viewPerfil(app) {
       const getUpload = (name) => app.querySelector(`[data-upload-hidden="${name}"]`)?.value;
       const errEl = app.querySelector("#solicitud-conductor-error");
       errEl.innerHTML = "";
-      if (!q("#f-solconductor-carpooling").checked) {
-        errEl.innerHTML = `<div class="error-box">Tenés que confirmar la cobertura del seguro para carpooling antes de continuar.</div>`;
-        return;
-      }
       if (!q("#f-solconductor-seguro-vtv-al-dia").checked) {
         errEl.innerHTML = `<div class="error-box">Tenés que declarar que tenés el seguro y la VTV vigentes y al día.</div>`;
         return;

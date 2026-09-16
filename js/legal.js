@@ -91,13 +91,12 @@ const TERMINOS_SECTIONS = [
   {
     titulo: "6. Seguro del vehículo: es responsabilidad del conductor confirmarlo",
     html: `
-      <p>El conductor es responsable de mantener vigentes las coberturas de seguro que la normativa exige para su vehículo, y de
-      <strong>confirmar con su propia compañía de seguros</strong> que su póliza cubre el traslado de pasajeros a cambio de una
-      contribución a los gastos (carpooling), antes de publicar o realizar un viaje. La existencia de una póliza de uso particular no
-      implica necesariamente que exista cobertura para cualquier utilización del vehículo.</p>
-      <p>Ruta Compartida pide al conductor, al registrarse, que declare haber verificado este punto con su aseguradora. Esa
-      declaración —igual que la verificación documental descripta en la sección siguiente— es una medida de reducción de riesgo, y no
-      sustituye la responsabilidad del conductor de conocer y cumplir sus propias obligaciones de seguro.</p>
+      <p>El conductor es responsable de mantener vigentes el seguro y la VTV (Verificación Técnica Vehicular) que la normativa exige
+      para su vehículo, antes de publicar o realizar un viaje.</p>
+      <p>Ruta Compartida pide al conductor, al registrarse (o al pedir la habilitación para publicar viajes), que declare contar con un
+      seguro actualizado a la fecha con cobertura de terceros completos y con la VTV vigente. Esa declaración —igual que la
+      verificación documental descripta en la sección siguiente— es una medida de reducción de riesgo, y no sustituye la
+      responsabilidad del conductor de conocer y cumplir sus propias obligaciones de seguro y de mantenimiento vehicular.</p>
     `,
   },
   {
@@ -106,11 +105,10 @@ const TERMINOS_SECTIONS = [
       <p>Para los conductores, antes de habilitar la cuenta un integrante del equipo de Ruta Compartida revisa manualmente la
       documentación cargada: DNI, una selfie de validación y licencia de conducir.</p>
       <p>El seguro del vehículo y la VTV (Verificación Técnica Vehicular) <strong>no se verifican con documentación</strong>: el
-      conductor declara, con un checkbox al inscribirse o al pedir la habilitación para publicar viajes, que los tiene vigentes y al
-      día. Esa declaración queda registrada con fecha, se muestra a los pasajeros en la ficha de cada viaje que publica ese conductor,
-      y —al igual que la confirmación de cobertura para carpooling descripta en la sección anterior— es una medida de reducción de
-      riesgo basada en la palabra del conductor, no una certificación de Ruta Compartida sobre el estado real del seguro o la VTV del
-      vehículo.</p>
+      conductor declara, con un checkbox al inscribirse o al pedir la habilitación para publicar viajes (ver la sección anterior), que
+      los tiene vigentes y al día. Esa declaración queda registrada con fecha, se muestra a los pasajeros en la ficha de cada viaje que
+      publica ese conductor, y es una medida de reducción de riesgo basada en la palabra del conductor, no una certificación de Ruta
+      Compartida sobre el estado real del seguro o la VTV del vehículo.</p>
       <p>Para los pasajeros, la cuenta se habilita automáticamente apenas se guardan el DNI y la selfie de validación cargados, sin
       esperar una revisión manual previa — Ruta Compartida conserva esa documentación y puede revisarla en cualquier momento
       (incluido después de habilitada la cuenta), por ejemplo ante un reporte o una sospecha de irregularidad, y puede suspender la
@@ -218,9 +216,9 @@ const REGLAS_SECTIONS = [
       <ul>
         <li>DNI (frente y dorso) y una selfie sosteniéndolo junto a su cara.</li>
         <li>Licencia de conducir vigente.</li>
-        <li>Declarar (con un checkbox, no documentación) que tiene el seguro del vehículo y la VTV vigentes y al día, habiendo
-        confirmado con su aseguradora que la póliza cubre carpooling. Esa declaración se muestra a los pasajeros en la ficha de cada
-        viaje que publica.</li>
+        <li>Declarar (con un checkbox, no documentación) que cuenta con un seguro actualizado a la fecha con cobertura de terceros
+        completos, y que la VTV de su vehículo está vigente. Esa declaración se muestra a los pasajeros en la ficha de cada viaje que
+        publica.</li>
       </ul>
       <h4>Pasajero</h4>
       <p>Es el usuario que necesita trasladarse y se suma al trayecto del conductor. Para habilitarse necesita:</p>
@@ -338,9 +336,9 @@ const REGLAS_SECTIONS = [
     titulo: "4. Derechos y obligaciones del conductor",
     html: `
       <ul>
-        <li><strong>Documentación:</strong> el vehículo debe tener VTV vigente y seguro con cobertura para carpooling — el conductor
-        lo declara al inscribirse y esa declaración se muestra a los pasajeros, no se verifica con documentación. Debe respetar las
-        velocidades máximas de la ruta.</li>
+        <li><strong>Documentación:</strong> el vehículo debe tener VTV vigente y seguro con cobertura de terceros completos — el
+        conductor lo declara al inscribirse y esa declaración se muestra a los pasajeros, no se verifica con documentación. Debe
+        respetar las velocidades máximas de la ruta.</li>
         <li><strong>Estado de la unidad:</strong> mantenimiento básico al día (luces, frenos, neumáticos en condiciones para ruta).</li>
         <li><strong>Hoja de ruta:</strong> se compromete a seguir el trayecto publicado, sin desvíos por trámites personales que
         retrasen al pasajero (salvo emergencia).</li>
