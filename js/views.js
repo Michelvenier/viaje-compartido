@@ -296,8 +296,15 @@ async function viewDetalle(app, params) {
       titulo: "¿Cómo se calculó este precio?",
       html: `<p>Distancia estimada: <strong>${viaje.distancia_km} km</strong>. Nafta usada como referencia: <strong>${fmtMoney(viaje.precio_nafta_usado)}/litro</strong>.
       Costo de combustible: <strong>${fmtMoney(viaje.costo_combustible)}</strong> + peajes <strong>${fmtMoney(viaje.peajes_estimados)}</strong> =
-      Techo Operativo de <strong>${fmtMoney(viaje.cto_total)}</strong>, dividido entre ${viaje.divisor_precio}.
-      Este precio lo calcula el sistema automáticamente según la ciudad de destino — el conductor no puede modificarlo.
+      Techo Operativo de <strong>${fmtMoney(viaje.cto_total)}</strong>, dividido entre ${viaje.divisor_precio} =
+      precio mínimo de <strong>${fmtMoney(viaje.precio_sugerido)}</strong> por asiento. Ese mínimo lo calcula el sistema
+      automáticamente — nadie puede publicar más barato que eso.
+      ${
+        Number(viaje.precio_por_asiento) > Number(viaje.precio_sugerido)
+          ? `Este conductor eligió cobrar un margen adicional por encima de ese mínimo: el precio final de este viaje es
+          <strong>${fmtMoney(viaje.precio_por_asiento)}</strong> por asiento.`
+          : `Este conductor no agregó ningún margen: cobra el mínimo calculado.`
+      }
       <a href="#/reglas-de-la-ruta">Ver el detalle completo →</a></p>`,
     },
     {
@@ -548,11 +555,11 @@ async function viewDetalle(app, params) {
               : ""
           }
           <div class="price-breakdown" style="border-top:none;padding-top:0">
-            <div class="row"><span>Costo compartido del tramo (${asientos} asiento(s))</span><span>${fmtMoney(desglose.montoTotal)}</span></div>
-            <div class="row total"><span>Comisión de Ruta Compartida a pagar (${desglose.comisionPct}%, mín. ${fmtMoney(desglose.comisionMinima)})</span><span>${fmtMoney(desglose.comisionPlataforma)}</span></div>
+            <div class="row"><span>Le pagás al conductor, directamente (${asientos} asiento(s))</span><span>${fmtMoney(desglose.montoConductor)}</span></div>
+            <div class="row total"><span>Comisión de Ruta Compartida a pagar, aparte (${desglose.comisionPct}%, mín. ${fmtMoney(desglose.comisionMinima)})</span><span>${fmtMoney(desglose.comisionPlataforma)}</span></div>
           </div>
-          <p class="muted" style="margin:6px 0 0">El resto (${fmtMoney(desglose.montoConductor)}) se lo transferís directamente al
-          conductor al momento de viajar — la plataforma no lo cobra.</p>`;
+          <p class="muted" style="margin:6px 0 0">La comisión se paga aparte y no se descuenta de lo que le transferís al
+          conductor al momento de viajar — la plataforma no cobra nada de ese monto.</p>`;
       } catch (err) {
         cont.innerHTML = `<span style="color:var(--danger)">${escapeHtml(err.message)}</span>`;
       }
@@ -1220,15 +1227,36 @@ function viewPublicar(app, query) {
         ciudades_intermedias: ciudadesIntermediasElegidas(),
       });
       if (miToken !== previewToken) return; // llegó tarde: ya hay una llamada más nueva en curso o resuelta, no pisarla
+      // Precio elegible por el conductor (21 oct 2026, a pedido explícito del usuario: "el chofer
+      // pueda seleccionar el valor del viaje, entre un minimo, que es el ya establecido y un 50%
+      // mas") — calc.precioMinimo/precioMaximo/margenMaximoPct los manda ya calculados el servidor
+      // (ver pricing.rangoPrecioPermitido), así el formulario no tiene que conocer de memoria el
+      // margen configurado desde el panel de admin. El precio elegido se valida de nuevo en el
+      // servidor al publicar (nunca se confía en lo que mande el navegador sin chequear).
       app.querySelector("#precio-preview").innerHTML = `
         <div class="price-breakdown" style="border-top:none;padding-top:0">
           <div class="row"><span>Distancia (${escapeHtml(calc.origenCiudad)} ↔ ${escapeHtml(calc.destinoCiudad)})</span><span>${calc.distanciaKm} km</span></div>
           <div class="row"><span>Peajes estimados</span><span>${fmtMoney(calc.peajesEstimados)}</span></div>
           <div class="row"><span>Costo combustible (nafta a ${fmtMoney(calc.precioNaftaUsado)}/L)</span><span>${fmtMoney(calc.costoCombustible)}</span></div>
           <div class="row"><span>Techo Operativo del viaje (C.T.O.)</span><span>${fmtMoney(calc.ctoTotal)}</span></div>
-          <div class="row total"><span>Precio final por asiento</span><span>${fmtMoney(calc.precioSugerido)}</span></div>
+          <div class="row total"><span>Precio mínimo por asiento (calculado)</span><span>${fmtMoney(calc.precioMinimo)}</span></div>
         </div>
-        <p class="muted" style="margin:6px 0 0">Este precio sale automático del cálculo — no se puede modificar.</p>`;
+        <div class="field" style="margin-top:10px">
+          <label>Precio final por asiento — lo elegís vos</label>
+          <input type="number" id="f-precio-elegido" name="precio_por_asiento" min="${calc.precioMinimo}" max="${calc.precioMaximo}" step="50" value="${calc.precioMinimo}" data-precio-minimo="${calc.precioMinimo}" data-precio-maximo="${calc.precioMaximo}">
+        </div>
+        <small class="hint">Podés cobrarle a cada pasajero entre ${fmtMoney(calc.precioMinimo)} (el mínimo calculado) y
+        ${fmtMoney(calc.precioMaximo)} (hasta un ${calc.margenMaximoPct}% más). La comisión de Ruta Compartida se paga aparte y
+        <strong>no se descuenta</strong> de este valor.</small>`;
+      const inputPrecio = app.querySelector("#f-precio-elegido");
+      inputPrecio.addEventListener("change", () => {
+        const min = Number(inputPrecio.dataset.precioMinimo);
+        const max = Number(inputPrecio.dataset.precioMaximo);
+        const valor = Number(inputPrecio.value);
+        if (!Number.isFinite(valor)) return;
+        if (valor < min) inputPrecio.value = min;
+        else if (valor > max) inputPrecio.value = max;
+      });
       btnPublicar.disabled = false;
     } catch (err) {
       if (miToken !== previewToken) return; // llegó tarde, ídem arriba
@@ -1296,6 +1324,11 @@ function viewPublicar(app, query) {
       hora_salida: fd.get("hora_salida"),
       hora_llegada_estimada: fd.get("hora_llegada_estimada") || null,
       asientos_totales: Number(fd.get("asientos_totales")),
+      // Precio por asiento elegido por el conductor (21 oct 2026, ver actualizarPreview más arriba)
+      // — si por lo que sea no hay un valor numérico todavía (ej. el precio ni se llegó a calcular),
+      // no se manda nada y el servidor usa el sugerido de siempre (ver publicar() en
+      // server/routes/viajes.js).
+      ...(Number(fd.get("precio_por_asiento")) > 0 ? { precio_por_asiento: Number(fd.get("precio_por_asiento")) } : {}),
       permite_mascotas: !!fd.get("permite_mascotas"),
       permite_equipaje_grande: !!fd.get("permite_equipaje_grande"),
       permite_fumar: !!fd.get("permite_fumar"),
@@ -2552,12 +2585,13 @@ async function viewPagar(app, params) {
         <div class="price-breakdown">
           <div class="row"><span>Precio por asiento</span><span>${fmtMoney(reserva.precio_por_asiento)}</span></div>
           <div class="row"><span>Asientos reservados</span><span>${reserva.asientos_reservados}</span></div>
-          <div class="row"><span>Costo compartido del viaje</span><span>${fmtMoney(reserva.monto_total)}</span></div>
-          <div class="row total"><span>Pagás ahora (comisión Ruta Compartida)</span><span>${fmtMoney(reserva.comision_plataforma)}</span></div>
+          <div class="row"><span>Le pagás al conductor, directamente</span><span>${fmtMoney(reserva.monto_conductor)}</span></div>
+          <div class="row total"><span>Pagás ahora (comisión Ruta Compartida, aparte)</span><span>${fmtMoney(reserva.comision_plataforma)}</span></div>
         </div>
         <div class="info-box" style="margin-top:14px">
-          Ruta Compartida solo cobra su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}).
-          El resto — <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo pagás vos directamente al conductor
+          Ruta Compartida solo cobra, aparte, su comisión de intermediación y validación (${fmtMoney(reserva.comision_plataforma)}) —
+          no se descuenta de lo que le pagás al conductor. El valor completo del viaje —
+          <strong>${fmtMoney(reserva.monto_conductor)}</strong> — se lo pagás vos directamente al conductor
           ${reserva.conductor_nombre ? `(${escapeHtml(reserva.conductor_nombre)} ${escapeHtml(reserva.conductor_apellido || "")})` : ""},
           coordinando el medio de pago entre ustedes al momento de viajar.
         </div>
@@ -3174,6 +3208,7 @@ async function viewAdmin(app) {
           <div class="field"><label>Precio nafta Súper ($/litro)</label><input type="number" name="precio_nafta_super" value="${config.precio_nafta_super}"></div>
           <div class="field"><label>Comisión de la plataforma (%)</label><input type="number" name="comision_plataforma_pct" value="${config.comision_plataforma_pct}"></div>
           <div class="field"><label>Comisión mínima ($)</label><input type="number" name="comision_minima" value="${config.comision_minima}"></div>
+          <div class="field"><label>Margen máximo que puede agregar el conductor sobre el precio calculado (%)</label><input type="number" name="tolerancia_ajuste_pct" value="${config.tolerancia_ajuste_pct}"></div>
           <div class="field"><label>Consumo de referencia (litros/100km)</label><input type="number" name="consumo_litros_100km" value="${config.consumo_litros_100km}"></div>
           <div class="field"><label>Piso mínimo por asiento ($/km)</label><input type="number" name="precio_minimo_por_km" value="${config.precio_minimo_por_km}"></div>
           <div class="field"><label>Piso mínimo base ($, trayectos cortos)</label><input type="number" name="precio_minimo_base" value="${config.precio_minimo_base}"></div>

@@ -171,9 +171,10 @@ async function publicar(req, res) {
 
   const asientosOfrecidos = Math.min(Math.max(Number(body.asientos_totales) || 3, 1), 4);
 
-  // Distancia, peajes y precio se calculan SIEMPRE en el servidor a partir de las ciudades — no
-  // se toma ningún valor de distancia_km, peajes_estimados ni precio_por_asiento que venga del
-  // cliente, así nadie (ni el propio conductor) puede modificarlos. Ver api/corredor.js.
+  // Distancia, peajes y el precio SUGERIDO (piso) se calculan SIEMPRE en el servidor a partir de
+  // las ciudades — no se toma ningún valor de distancia_km, peajes_estimados ni precio_sugerido que
+  // venga del cliente, así nadie (ni el propio conductor) puede modificarlos. Ver api/corredor.js.
+  // El precio POR ASIENTO final sí lo puede elegir el conductor, dentro de un rango — ver más abajo.
   // origen_coords/destino_coords (opcionales, 20 ago 2026): lat/lng del lugar exacto que el
   // Autocomplete de ciudades ya resolvió en el navegador (ver js/views.js viewPublicar) — solo se
   // usan para desambiguar la consulta a Google Maps si hace falta pedirle la distancia (nunca se
@@ -188,6 +189,23 @@ async function publicar(req, res) {
     ciudadesIntermediasValidas(body.ciudades_intermedias)
   );
   if (calculo.error) return badRequest(res, calculo.error);
+
+  // Precio por asiento elegido por el conductor (21 oct 2026, a pedido explícito del usuario: "el
+  // chofer pueda seleccionar el valor del viaje, entre un minimo, que es el ya establecido y un 50%
+  // mas. Osea el chofer elige el precio a pagar por cada pasajero") — antes SIEMPRE era igual al
+  // sugerido (calculo.precioSugerido), nadie lo podía tocar. Ahora, si el conductor mandó un
+  // precio_por_asiento, se valida en el servidor (nunca confiando en el cliente sin chequear) que
+  // esté dentro del rango permitido (ver pricing.validarPrecioElegido) antes de aceptarlo; si no
+  // mandó nada (ej. un cliente viejo, o llamando directo al endpoint), se sigue usando el sugerido
+  // tal cual, igual que siempre.
+  let precioPorAsiento = calculo.precioSugerido;
+  if (body.precio_por_asiento != null && body.precio_por_asiento !== "") {
+    const precioElegido = Number(body.precio_por_asiento);
+    if (!Number.isFinite(precioElegido)) return badRequest(res, "El precio por asiento elegido no es válido.");
+    const validacion = await pricing.validarPrecioElegido({ precioSugerido: calculo.precioSugerido, precioElegido });
+    if (!validacion.valido) return badRequest(res, validacion.motivo);
+    precioPorAsiento = precioElegido;
+  }
 
   const id = newId("trip");
   // Puntos de encuentro elegidos con el buscador (server/routes/lugares.js): objeto keyeado por
@@ -238,7 +256,7 @@ async function publicar(req, res) {
       calculo.ctoTotal,
       calculo.divisor,
       calculo.precioSugerido,
-      calculo.precioSugerido,
+      precioPorAsiento,
       asientosOfrecidos,
       asientosOfrecidos,
       body.permite_mascotas ? 1 : 0,
@@ -441,7 +459,12 @@ async function calcularVista(req, res) {
     ciudadesIntermediasValidas(body.ciudades_intermedias)
   );
   if (calculo.error) return badRequest(res, calculo.error);
-  ok(res, calculo);
+  // Rango de precio por asiento que el conductor va a poder elegir al publicar (21 oct 2026, ver
+  // pricing.rangoPrecioPermitido) — se manda ya calculado para que el formulario de publicar
+  // (js/views.js viewPublicar) pueda armar el selector de precio sin tener que conocer de memoria
+  // el margen configurado desde el panel de admin.
+  const rango = await pricing.rangoPrecioPermitido(calculo.precioSugerido);
+  ok(res, { ...calculo, precioMinimo: rango.piso, precioMaximo: rango.techo, margenMaximoPct: rango.margenMaximoPct });
 }
 
 // Vista previa de la comisión ANTES de confirmar la solicitud de reserva (Reglas de la Ruta 2.3:
@@ -476,7 +499,10 @@ async function desgloseReservaVista(req, res, params) {
   if (!tramo.esCompleto) {
     const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
     if (calculoTramo.error) return badRequest(res, calculoTramo.error);
-    precioPorAsiento = calculoTramo.precioSugerido;
+    // Se le aplica al tramo parcial el mismo % de ajuste que el conductor eligió para el viaje
+    // completo (21 oct 2026, ver pricing.precioTramoConAjuste) — así el margen que cobra no
+    // desaparece solo porque el pasajero reservó un tramo en vez del viaje entero.
+    precioPorAsiento = pricing.precioTramoConAjuste(viaje, calculoTramo.precioSugerido);
     distanciaKmTramo = calculoTramo.distanciaKm;
   }
 

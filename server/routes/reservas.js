@@ -159,7 +159,10 @@ async function crear(req, res) {
   if (!tramo.esCompleto) {
     const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
     if (calculoTramo.error) return badRequest(res, calculoTramo.error);
-    precioPorAsiento = calculoTramo.precioSugerido;
+    // Mismo % de ajuste que el conductor eligió para el viaje completo, aplicado también al tramo
+    // parcial (21 oct 2026, ver pricing.precioTramoConAjuste) — tiene que dar el mismo número que
+    // ya vio el pasajero en la vista previa (server/routes/viajes.js desgloseReservaVista).
+    precioPorAsiento = pricing.precioTramoConAjuste(viaje, calculoTramo.precioSugerido);
   }
 
   const desglose = await pricing.calcularDesgloseReserva(precioPorAsiento, asientos);

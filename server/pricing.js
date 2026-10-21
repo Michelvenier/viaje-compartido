@@ -53,9 +53,12 @@ async function guardarDistanciaCache(ciudadA, ciudadB, km) {
   );
 }
 
-// Calcula distancia, peajes y precio de forma 100% automática a partir de las ciudades elegidas —
-// nadie (ni el conductor) puede tocar el km ni el precio: ambos salen siempre de esta cascada y de
-// calcularPrecioSugerido(). Desde el 19 ago 2026, a pedido explícito del usuario ("Eso es para los
+// Calcula distancia, peajes y el PRECIO SUGERIDO (= piso mínimo, ver rangoPrecioPermitido más
+// abajo) de forma 100% automática a partir de las ciudades elegidas — nadie (ni el conductor) puede
+// tocar el km, los peajes ni este valor sugerido: salen siempre de esta cascada y de
+// calcularPrecioSugerido(). El precio FINAL por asiento (lo que el conductor elige cobrar, dentro
+// del rango permitido) es otra cosa — ver rangoPrecioPermitido/validarPrecioElegido y publicar() en
+// server/routes/viajes.js. Desde el 19 ago 2026, a pedido explícito del usuario ("Eso es para los
 // km de las ciudades, TODAS!!"), Google Maps es la fuente PRINCIPAL de distancia para cualquier par
 // de ciudades del corredor, incluidos los pares que tocan La Plata — antes esos pares usaban
 // siempre la tabla curada a mano y nunca consultaban a Google Maps:
@@ -235,51 +238,80 @@ async function calcularPrecioSugerido(distanciaKm, peajesTotal, asientosOfrecido
   };
 }
 
-async function validarPrecioElegido({ precioSugerido, precioElegido, ctoTotal, asientosOfrecidos }) {
-  const tolerancia = (await getConfig("tolerancia_ajuste_pct")) / 100;
-  const techoAjuste = round2(precioSugerido * (1 + tolerancia));
-  const pisoAjuste = round2(precioSugerido * (1 - tolerancia));
-
-  if (precioElegido > techoAjuste) {
-    return {
-      valido: false,
-      motivo: `El precio no puede superar el sugerido en más de un ${tolerancia * 100}% (máximo permitido: $${techoAjuste} por asiento).`,
-      techoAjuste,
-      pisoAjuste,
-    };
-  }
-  if (precioElegido < pisoAjuste * 0.5) {
-    return {
-      valido: false,
-      motivo: "El precio ingresado es demasiado bajo para representar un gasto real del trayecto.",
-      techoAjuste,
-      pisoAjuste,
-    };
-  }
-
-  const recaudacionTotal = round2(precioElegido * asientosOfrecidos);
-  if (recaudacionTotal > ctoTotal) {
-    return {
-      valido: false,
-      motivo: `La recaudación total (${recaudacionTotal}) no puede superar el Techo Operativo del viaje (${ctoTotal}). Reglas de la Ruta, punto 3.`,
-      techoAjuste,
-      pisoAjuste,
-    };
-  }
-
-  return { valido: true, techoAjuste, pisoAjuste, recaudacionTotal };
+// Rango de precio que puede elegir el conductor al publicar un viaje (21 oct 2026, a pedido
+// explícito del usuario: "el chofer pueda seleccionar el valor del viaje, entre un minimo, que es
+// el ya establecido y un 50% mas"). Reemplaza el modelo viejo (nunca usado en producción: antes el
+// precio por asiento SIEMPRE salía igual al sugerido, nadie lo podía tocar — ver el comentario de
+// calcularPorCiudades más arriba y el de publicar() en server/routes/viajes.js). Ahora:
+//   - Piso: el precio YA calculado automáticamente (calcularPrecioSugerido) — nunca se puede
+//     ofrecer más barato que eso, sigue siendo 100% automático y no editable hacia abajo.
+//   - Techo: ese mismo piso + un margen máximo configurable desde el panel de admin
+//     ("tolerancia_ajuste_pct" — pasó de ser un ±% simétrico, que nunca se llegó a usar, a ser SOLO
+//     el margen máximo hacia arriba; valor de referencia: 50%).
+// El conductor decide cualquier precio dentro de ese rango — eso es lo que le cobra a cada
+// pasajero, completo (ver calcularDesgloseReserva más abajo: la comisión de la plataforma se paga
+// APARTE, nunca se descuenta de este monto).
+async function rangoPrecioPermitido(precioSugerido) {
+  const margenMaximoPct = (await getConfig("tolerancia_ajuste_pct")) || 0;
+  const piso = precioSugerido;
+  const techo = round2(precioSugerido * (1 + margenMaximoPct / 100));
+  return { piso, techo, margenMaximoPct };
 }
 
-// Modelo de cobro: el pasajero le paga a Ruta Compartida SOLO la comisión de intermediación
-// (10% del costo compartido, con un mínimo de $2.000). El resto ("montoConductor") no lo cobra
-// la plataforma: el pasajero se lo transfiere directamente al conductor (por transferencia o QR
-// a su alias de Mercado Pago) al momento del viaje. Así la plataforma solo factura su comisión.
+async function validarPrecioElegido({ precioSugerido, precioElegido }) {
+  const { piso, techo, margenMaximoPct } = await rangoPrecioPermitido(precioSugerido);
+
+  if (precioElegido < piso) {
+    return {
+      valido: false,
+      motivo: `El precio por asiento no puede ser menor al precio ya calculado para este viaje ($${piso}).`,
+      piso,
+      techo,
+    };
+  }
+  if (precioElegido > techo) {
+    return {
+      valido: false,
+      motivo: `El precio por asiento no puede superar el calculado en más de un ${margenMaximoPct}% (máximo permitido: $${techo} por asiento).`,
+      piso,
+      techo,
+    };
+  }
+
+  return { valido: true, piso, techo, margenMaximoPct };
+}
+
+// Aplica a un TRAMO PARCIAL (ej. "9 de Julio -> Pehuajó" dentro de un viaje "La Plata -> Pehuajó")
+// la misma proporción de ajuste que el conductor eligió para el viaje completo al publicarlo
+// (precio_por_asiento / precio_sugerido) — así un conductor que cobra, por ejemplo, un 20% por
+// encima del precio calculado en el viaje completo cobra ese mismo 20% también en los tramos
+// parciales, en vez de que el tramo parcial vuelva a salir siempre "a secas" al precio calculado
+// sin el margen que el conductor eligió. Usado tanto en reservas.crear() (server/routes/reservas.js)
+// como en desgloseReservaVista() (server/routes/viajes.js) para que el número que ve el pasajero
+// antes de pedir la reserva sea siempre el mismo que el que se le cobra después. Si el viaje es de
+// antes de este cambio (precio_sugerido == precio_por_asiento, sin margen elegido), el factor da 1
+// y no cambia nada.
+function precioTramoConAjuste(viaje, precioSugeridoTramo) {
+  const factor = viaje.precio_sugerido > 0 ? viaje.precio_por_asiento / viaje.precio_sugerido : 1;
+  return round2(precioSugeridoTramo * factor);
+}
+
+// Modelo de cobro (actualizado 21 oct 2026, a pedido explícito del usuario: "la comision se paga
+// aparte del viaje, no se descuenta del valor a cobrar por el chofer"): el pasajero le paga a Ruta
+// Compartida la comisión de intermediación (15% del valor del viaje, con un mínimo de $4.000) Y,
+// POR SEPARADO, le paga al conductor el valor COMPLETO que este fijó por asiento (precio_por_asiento
+// × asientos, ver publicar() en server/routes/viajes.js) — la comisión NUNCA se descuenta de ese
+// monto, son dos pagos distintos por dos canales distintos (comisión: por la app/transferencia a
+// Ruta Compartida; conductor: directo entre conductor y pasajero). Antes (hasta el 21 oct 2026) la
+// comisión SÍ se restaba de montoTotal para dar montoConductor — se corrigió porque el precio que
+// fija el conductor tiene que ser el que efectivamente cobra, sin que la comisión se lo achique.
 async function calcularDesgloseReserva(precioPorAsiento, asientosReservados) {
   const comisionPct = (await getConfig("comision_plataforma_pct")) / 100;
   const comisionMinima = (await getConfig("comision_minima")) || 0;
   const montoTotal = round2(precioPorAsiento * asientosReservados);
   const comisionPlataforma = round2(Math.max(montoTotal * comisionPct, comisionMinima));
-  const montoConductor = round2(montoTotal - comisionPlataforma);
+  // montoConductor = montoTotal, completo — ver el comentario de arriba, ya no se le resta la comisión.
+  const montoConductor = montoTotal;
   return { montoTotal, comisionPlataforma, montoConductor, comisionPct: comisionPct * 100, comisionMinima };
 }
 
@@ -293,7 +325,9 @@ module.exports = {
   faltanMenosDe24Hs,
   calcularPrecioSugerido,
   calcularPorCiudades,
+  rangoPrecioPermitido,
   validarPrecioElegido,
+  precioTramoConAjuste,
   calcularDesgloseReserva,
   round2,
 };

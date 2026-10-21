@@ -387,8 +387,14 @@ async function initSchema() {
   const defaults = [
     ["precio_nafta_super", "1450"],
     ["peaje_default_ruta5_226", "3200"],
-    ["comision_plataforma_pct", "10"],
-    ["comision_minima", "2000"],
+    // Comisión de la plataforma: 15% del valor del viaje, con un mínimo de $4.000 (actualizado el 21
+    // oct 2026, a pedido explícito del usuario: "Quiero que la comision nuestra sea de minimo 4000,
+    // que sea el 15% del viaje" — antes era 10% con mínimo $2.000). Ver
+    // migrarComisionPlataforma21Oct2026()/migrarComisionMinima21Oct2026() más abajo para la
+    // corrección del valor ya sembrado en bases que arrancaron antes de este cambio (los seeds usan
+    // ON CONFLICT DO NOTHING, así que cambiar el default acá no alcanza solo).
+    ["comision_plataforma_pct", "15"],
+    ["comision_minima", "4000"],
     // Consumo de referencia: vuelta a 10 litros cada 100km (a pedido explícito del usuario, 08 sep
     // 2026, segunda vuelta del mismo día: "Siento caro el viaje, nafta super a 10 litros por km, mas
     // no!" — revierte el cambio a 12 de más temprano ese mismo día). Ver
@@ -396,7 +402,16 @@ async function initSchema() {
     // en bases que ya habían arrancado con 12 (los seeds usan ON CONFLICT DO NOTHING, así que cambiar
     // el default acá no alcanza solo).
     ["consumo_litros_100km", "10"],
-    ["tolerancia_ajuste_pct", "15"],
+    // Margen máximo que puede agregar el conductor por encima del precio ya calculado, al elegir
+    // cuánto cobrarle a cada pasajero (actualizado el 21 oct 2026, a pedido explícito del usuario:
+    // "el chofer pueda seleccionar el valor del viaje, entre un minimo, que es el ya establecido y
+    // un 50% mas" — ver server/pricing.js rangoPrecioPermitido). Antes esta clave existía pero no se
+    // usaba en ningún lado (el precio por asiento siempre salía igual al sugerido, sin margen hacia
+    // arriba ni hacia abajo) y su valor (15) representaba un ± simétrico que nunca llegó a
+    // implementarse — ahora es SOLO el margen hacia arriba; hacia abajo el piso es siempre el precio
+    // ya calculado, sin excepción. Ver migrarTechoAjustePrecio21Oct2026() más abajo para la
+    // corrección del valor ya sembrado en bases que arrancaron antes de este cambio.
+    ["tolerancia_ajuste_pct", "50"],
     // Piso mínimo de precio por asiento: nunca menos de $12.000 (tarifa mínima para trayectos
     // cortos, hasta ~230 km) ni menos de $52 por km recorrido — 500 km da exactamente $26.000.
     // Se aplica el mayor entre el piso y el cálculo por costo real (nafta + peajes / asientos).
@@ -455,6 +470,9 @@ async function initSchema() {
   await migrarVariantesRuta07Sep2026();
   await migrarConsumoNafta08Sep2026();
   await migrarConsumoNafta08Sep2026SegundaVuelta();
+  await migrarComisionPlataforma21Oct2026();
+  await migrarComisionMinima21Oct2026();
+  await migrarTechoAjustePrecio21Oct2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -676,6 +694,39 @@ async function migrarConsumoNafta08Sep2026SegundaVuelta() {
   const fila = await get("SELECT valor FROM config WHERE clave = 'consumo_litros_100km'");
   if (fila && fila.valor === "12") {
     await run("UPDATE config SET valor = ? WHERE clave = 'consumo_litros_100km'", ["10"]);
+  }
+}
+
+// Migraciones puntuales (21 oct 2026, a pedido explícito del usuario: "Quiero que la comision
+// nuestra sea de minimo 4000, que sea el 15% del viaje" + "el chofer pueda seleccionar el valor del
+// viaje, entre un minimo, que es el ya establecido y un 50% mas"). Mismo patrón que las migraciones
+// de nafta/peajes de arriba: fuerzan el UPDATE, pero SOLO si el valor guardado todavía coincide
+// EXACTO con el viejo default, para respetar cualquier edición manual que el admin ya haya hecho
+// desde el panel ("Valores de referencia"). Corren en cada arranque en frío; después de la primera
+// vez ya no encuentran nada para tocar.
+async function migrarComisionPlataforma21Oct2026() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'comision_plataforma_pct'");
+  if (fila && fila.valor === "10") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'comision_plataforma_pct'", ["15"]);
+  }
+}
+
+async function migrarComisionMinima21Oct2026() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'comision_minima'");
+  if (fila && fila.valor === "2000") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'comision_minima'", ["4000"]);
+  }
+}
+
+// Mismo patrón, para el margen máximo que puede agregar el conductor por encima del precio ya
+// calculado (ver server/pricing.js rangoPrecioPermitido) — el valor viejo (15) representaba un ±
+// simétrico que nunca se llegó a usar en producción, así que no hay ningún precio ya publicado que
+// dependa de ese número; se fuerza directo al nuevo default (50) salvo que el admin ya lo haya
+// editado a mano desde el panel.
+async function migrarTechoAjustePrecio21Oct2026() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'tolerancia_ajuste_pct'");
+  if (fila && fila.valor === "15") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'tolerancia_ajuste_pct'", ["50"]);
   }
 }
 

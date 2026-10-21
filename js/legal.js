@@ -76,16 +76,18 @@ const TERMINOS_SECTIONS = [
   {
     titulo: "5. El viaje compartido no es un servicio de transporte comercial",
     html: `
-      <p>El conductor declara que utiliza Ruta Compartida exclusivamente para compartir gastos de trayectos que de todos modos iba a
-      realizar por cuenta propia. En consecuencia, el conductor <strong>no puede obtener un beneficio económico</strong> por llevar
-      pasajeros: debe soportar también una parte del costo de su propio viaje, y la suma que reciba de todos los pasajeros de un mismo
-      trayecto nunca puede superar el costo compartido de ese trayecto (ver <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a> para el
-      cálculo concreto y los topes vigentes).</p>
+      <p>El conductor declara que utiliza Ruta Compartida para compartir un trayecto que de todos modos iba a realizar por cuenta
+      propia. La contribución que le cobra a cada pasajero tiene un piso calculado automáticamente a partir del costo real estimado del
+      trayecto (combustible y peajes) y puede incluir, por encima de ese piso, un margen de servicio adicional — hasta el porcentaje
+      máximo que la plataforma tenga configurado en cada momento (ver <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a>, punto 3, para
+      el cálculo concreto y los topes vigentes) — que compensa otros costos de poner el auto a disposición (desgaste del vehículo,
+      tiempo, disponibilidad), sin convertirlo en un servicio de transporte comercial equivalente a un taxi, remis o transporte privado
+      profesional.</p>
       <p>Queda prohibido usar la plataforma para: publicar viajes ficticios con el único fin de generar ingresos; realizar trayectos
-      cuya finalidad principal sea transportar pasajeros a cambio de dinero; cobrar por fuera de los topes que fija el sistema; o usar
-      Ruta Compartida como sustituto de un servicio de taxi, remis o transporte privado profesional. Ruta Compartida podrá rechazar
-      publicaciones, cancelar reservas, suspender o eliminar cuentas cuando detecte indicios razonables de uso comercial, fraudulento o
-      contrario a estos Términos.</p>
+      cuya finalidad principal sea transportar pasajeros a cambio de dinero en vez de compartir un trayecto propio; cobrar por fuera del
+      rango de precio que fija el sistema; o usar Ruta Compartida como sustituto de un servicio de taxi, remis o transporte privado
+      profesional. Ruta Compartida podrá rechazar publicaciones, cancelar reservas, suspender o eliminar cuentas cuando detecte indicios
+      razonables de uso comercial, fraudulento o contrario a estos Términos.</p>
     `,
   },
   {
@@ -126,14 +128,14 @@ const TERMINOS_SECTIONS = [
   {
     titulo: "8. Contribución a los gastos y comisión de la plataforma",
     html: `
-      <p>La contribución que paga el pasajero tiene como único fin compartir los gastos del trayecto (combustible y peajes); no es una
-      tarifa comercial ni genera ganancia para el conductor. El método de cálculo, los topes aplicables y los porcentajes de ajuste
-      permitidos están descriptos —con sus valores concretos, que la plataforma puede actualizar periódicamente— en las
-      <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a>.</p>
-      <p>Además de esa contribución, Ruta Compartida puede percibir una comisión por el servicio tecnológico de intermediación,
-      validación, gestión de reservas y soporte que presta a través de la plataforma. Esa comisión es independiente de la contribución
-      que recibe el conductor, y su existencia no convierte al conductor en trabajador, empleado ni prestador contratado por la
-      plataforma.</p>
+      <p>La contribución que paga el pasajero se calcula a partir de los gastos del trayecto (combustible y peajes), con un piso mínimo
+      automático; el conductor puede elegir cobrar hasta un margen adicional por encima de ese piso, dentro del porcentaje máximo que la
+      plataforma tenga configurado. El método de cálculo, el rango permitido y los valores concretos vigentes —que la plataforma puede
+      actualizar periódicamente— están descriptos en las <a href="#/reglas-de-la-ruta">Reglas de la Ruta</a>.</p>
+      <p>Aparte de esa contribución, Ruta Compartida cobra su propia comisión por el servicio tecnológico de intermediación,
+      validación, gestión de reservas y soporte que presta a través de la plataforma. Esa comisión se paga por separado y
+      <strong>no se descuenta</strong> de la contribución que recibe el conductor: son dos pagos distintos, por dos canales distintos.
+      La existencia de esta comisión no convierte al conductor en trabajador, empleado ni prestador contratado por la plataforma.</p>
     `,
   },
   {
@@ -297,10 +299,11 @@ const REGLAS_SECTIONS = [
     `,
   },
   {
-    titulo: "3. Cómo se calcula el precio (y por qué nadie puede lucrar)",
+    titulo: "3. Cómo se calcula el precio (y el margen que puede elegir el conductor)",
     html: `
-      <p>El objetivo de este mecanismo es que el conductor recupere parte de <strong>lo que ese viaje le cuesta</strong>, nunca que
-      genere una ganancia por llevar pasajeros.</p>
+      <p>El objetivo de este mecanismo es que el conductor tenga, como mínimo, un precio que cubra <strong>lo que ese viaje le
+      cuesta</strong> — y que, por encima de ese mínimo, pueda elegir cobrar un margen de servicio adicional dentro de un tope que fija
+      la plataforma.</p>
       <h4>Valor de referencia</h4>
       <p>Tomamos un precio de referencia de la nafta Súper y los peajes vigentes en las rutas habilitadas. Estos valores, junto con el
       consumo estimado del vehículo (por defecto, 10 litros cada 100 km) y el piso mínimo por kilómetro mencionado abajo, están
@@ -316,20 +319,23 @@ const REGLAS_SECTIONS = [
       <h4>Piso mínimo</h4>
       <p>Además del cálculo por costo, el sistema aplica un piso mínimo por asiento (ambos valores configurables desde el panel de
       administración): una tarifa mínima fija para trayectos cortos, y a partir de cierta distancia, un valor mínimo por kilómetro
-      recorrido. El precio sugerido final es siempre el <strong>mayor</strong> entre el cálculo por costo real y ese piso, para que la
-      contribución nunca quede desactualizada frente a los costos reales de nafta y peajes.</p>
-      <h4>Techo Operativo (C.T.O.) — la Regla de Oro</h4>
-      <p>La suma de las contribuciones de <strong>todos</strong> los pasajeros confirmados de un mismo trayecto nunca puede superar el
-      100% del C.T.O. calculado para ese trayecto. Es un techo que calcula el sistema, no el conductor.</p>
-      <h4>El precio no se puede editar</h4>
+      recorrido. El precio calculado final —el <strong>mayor</strong> entre el cálculo por costo real y ese piso— es el precio mínimo
+      que puede cobrar el conductor por asiento: nunca se puede publicar un viaje más barato que eso.</p>
+      <h4>Margen que puede elegir el conductor</h4>
+      <p>Por encima de ese precio mínimo, el conductor puede elegir cobrarle a cada pasajero un margen adicional, hasta un porcentaje
+      máximo que fija la plataforma y puede actualizarse desde el panel de administración (valor de referencia: 50% por encima del
+      mínimo calculado). El conductor fija ese precio una sola vez, al publicar el viaje, y se aplica por igual a cualquier tramo
+      parcial que reserve un pasajero más adelante.</p>
+      <h4>El precio sale siempre del cálculo automático</h4>
       <p>La distancia y los peajes estimados salen siempre de una tabla de referencia por ciudad (para los trayectos con origen o
-      destino en La Plata) o de una consulta automática a un servicio de mapas (para trayectos entre otras dos ciudades del corredor),
-      y el precio final del cálculo automático descripto arriba. Ni el conductor ni nadie puede escribir un valor distinto al publicar
-      el viaje — así el precio nunca se aparta del costo real ni depende de cuánto quiera cobrar cada persona.</p>
+      destino en La Plata) o de una consulta automática a un servicio de mapas (para trayectos entre otras dos ciudades del corredor).
+      Ni el conductor ni nadie puede escribir un km, un peaje o un precio mínimo distinto al que calcula el sistema — lo único que el
+      conductor elige, dentro del rango que describe el punto anterior, es cuánto cobrar por encima de ese mínimo.</p>
       <h4>Comisión de Ruta Compartida</h4>
-      <p>Aparte de esta contribución al conductor, la app cobra una comisión propia por su servicio de intermediación (un porcentaje del
-      costo compartido del viaje, con un mínimo en pesos). Esa comisión es la que factura Ruta Compartida; el resto siempre se lo
-      transferís directamente al conductor. Los valores vigentes de todo lo anterior se muestran siempre antes de confirmar un pago.</p>
+      <p>Aparte de la contribución que le pagás al conductor, la app cobra su propia comisión por el servicio de intermediación: un
+      porcentaje del valor del viaje, con un mínimo en pesos (los valores vigentes se muestran siempre antes de confirmar un pago). Esa
+      comisión se paga por separado y <strong>no se descuenta</strong> de lo que le transferís al conductor — son dos pagos distintos,
+      por dos canales distintos.</p>
     `,
   },
   {
@@ -498,7 +504,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Cómo se fija el precio del viaje?",
-    a: "Lo calcula el sistema automáticamente según la ciudad de origen y destino (distancia y peajes de referencia), en base al gasto real de combustible y peajes del trayecto, dividido entre los asientos del auto. Nadie puede editarlo — ni el conductor — y nunca supera el Techo Operativo del viaje (ver 'Reglas de la Ruta', punto 3).",
+    a: "El sistema calcula automáticamente, según la ciudad de origen y destino (distancia y peajes de referencia) y el gasto real de combustible y peajes del trayecto, un precio MÍNIMO por asiento — nadie, ni el conductor, puede publicar más barato que ese mínimo. Por encima de ese mínimo, el conductor puede elegir cobrar un margen adicional, hasta un porcentaje máximo que fija la plataforma (ver 'Reglas de la Ruta', punto 3, para el cálculo concreto y el margen vigente).",
   },
   {
     q: "¿Cómo se paga?",
@@ -538,7 +544,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Los conductores ganan dinero llevando pasajeros?",
-    a: "No debería: el sistema calcula un Techo Operativo que la suma de todas las contribuciones nunca puede superar, así que el conductor solo recupera parte de su propio gasto de combustible y peajes, nunca una ganancia extra.",
+    a: "El sistema calcula siempre un precio mínimo que solo cubre el gasto real de combustible y peajes del trayecto. Por encima de ese mínimo, el conductor puede elegir cobrar un margen adicional (hasta el porcentaje máximo vigente, ver 'Reglas de la Ruta', punto 3) — así que sí puede quedarle algo más que el gasto, pero siempre dentro de ese tope, nunca a cualquier precio.",
   },
   {
     q: "¿Hay relación laboral entre Ruta Compartida y los conductores?",
