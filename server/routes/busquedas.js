@@ -168,6 +168,15 @@ async function abiertas(req, res) {
 // viajes.js) ya sabe resolver tramos parciales dentro de la ruta real de un viaje (ver
 // server/corredor.js resolverTramo/asientosLibresPorTramoElemental) — acá se usa exactamente la
 // misma lógica, en vez de la comparación exacta de ciudades.
+//
+// SEGUNDO FIX, mismo día (a pedido explícito del usuario, probando con un viaje de prueba que
+// coincidía EXACTO en ciudades pero con otra fecha: "no importa fecha ni nada... no tiene que
+// coincidir fecha, se lo tendria que poder ofrecer"): hasta acá también se exigía que
+// `fecha_salida` del viaje cayera DENTRO del rango que pidió el pasajero — un viaje con la ruta
+// exacta pero otro día quedaba afuera. Se saca esa restricción: ahora aparece cualquier viaje
+// activo del conductor que sirva para la ruta (completo o tramo), sin importar la fecha — el
+// pasajero ve la fecha real de cada oferta (el frontend ya la muestra, ver js/views.js
+// abrirOfrecerViaje) y decide si le sirve o no al aceptar.
 async function misViajesQueSirven(req, res, params, query) {
   const busqueda = await db.get("SELECT * FROM busquedas_pasajero WHERE id = ?", [params.id]);
   if (!busqueda) return notFound(res, "Búsqueda no encontrada");
@@ -175,9 +184,9 @@ async function misViajesQueSirven(req, res, params, query) {
 
   const candidatos = await db.all(
     `SELECT * FROM viajes
-     WHERE conductor_id = ? AND estado = 'activo' AND fecha_salida BETWEEN ? AND ?
+     WHERE conductor_id = ? AND estado = 'activo'
      ORDER BY fecha_salida ASC`,
-    [query.conductor_id, busqueda.fecha_desde, busqueda.fecha_hasta]
+    [query.conductor_id]
   );
   if (candidatos.length === 0) return ok(res, []);
 
@@ -260,9 +269,11 @@ async function ofrecer(req, res, params) {
   if (tramo.error) {
     return badRequest(res, `Ese viaje no pasa por la ruta que pide la búsqueda (${busqueda.origen_ciudad} → ${busqueda.destino_ciudad}).`);
   }
-  if (viaje.fecha_salida < busqueda.fecha_desde || viaje.fecha_salida > busqueda.fecha_hasta) {
-    return badRequest(res, `Ese viaje sale el ${viaje.fecha_salida}, fuera del rango que pidió el pasajero (${busqueda.fecha_desde} a ${busqueda.fecha_hasta}).`);
-  }
+  // SEGUNDO FIX, mismo día (a pedido explícito del usuario — ver el comentario largo en
+  // misViajesQueSirven más arriba): antes acá también se rechazaba si la fecha de salida del viaje
+  // no caía dentro del rango pedido por el pasajero. Se saca esa restricción — el conductor puede
+  // ofrecer el viaje igual aunque la fecha no coincida; el pasajero ve la fecha real de la oferta y
+  // decide si la acepta.
 
   const yaOfrecio = await db.get(
     "SELECT id FROM ofertas_conductor WHERE busqueda_id = ? AND conductor_id = ? AND estado = 'pendiente'",
