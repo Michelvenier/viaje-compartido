@@ -155,23 +155,78 @@ async function abiertas(req, res) {
   ok(res, rows);
 }
 
-// Viajes YA publicados por este conductor que sirven de una para una búsqueda puntual (mismas
-// ciudades, activo, y la fecha de salida cae dentro del rango pedido) — para que el conductor
-// pueda ofrecer con un solo clic sin tener que publicar de nuevo. Si esto devuelve vacío, el
-// frontend manda al conductor a publicar un viaje nuevo (ver #/publicar?desde_busqueda= en
-// js/views.js viewPublicar).
+// Viajes YA publicados por este conductor que sirven de una para una búsqueda puntual — para que
+// el conductor pueda ofrecer con un solo clic sin tener que publicar de nuevo. Si esto devuelve
+// vacío, el frontend manda al conductor a publicar un viaje nuevo (ver #/publicar?desde_busqueda=
+// en js/views.js viewPublicar).
+//
+// FIX 21 oct 2026 (a pedido explícito del usuario: "No importa origen y destino, es un problema de
+// la pagina! nbo me deja ofrecer viaje"): hasta ahora esto exigía que `origen_ciudad`/
+// `destino_ciudad` del viaje coincidieran EXACTO con los de la búsqueda — un viaje publicado como,
+// por ejemplo, "La Plata -> Pehuajó" nunca aparecía para una búsqueda "La Plata -> 9 de Julio",
+// aunque 9 de Julio sea una parada intermedia real de ese viaje. El resto de la app (reservas.js,
+// viajes.js) ya sabe resolver tramos parciales dentro de la ruta real de un viaje (ver
+// server/corredor.js resolverTramo/asientosLibresPorTramoElemental) — acá se usa exactamente la
+// misma lógica, en vez de la comparación exacta de ciudades.
 async function misViajesQueSirven(req, res, params, query) {
   const busqueda = await db.get("SELECT * FROM busquedas_pasajero WHERE id = ?", [params.id]);
   if (!busqueda) return notFound(res, "Búsqueda no encontrada");
   if (!query.conductor_id) return badRequest(res, "Falta conductor_id.");
-  const rows = await db.all(
-    `SELECT id, origen_ciudad, destino_ciudad, fecha_salida, hora_salida, precio_por_asiento, asientos_disponibles
-     FROM viajes
-     WHERE conductor_id = ? AND estado = 'activo' AND origen_ciudad = ? AND destino_ciudad = ?
-       AND fecha_salida BETWEEN ? AND ? AND asientos_disponibles >= ?
+
+  const candidatos = await db.all(
+    `SELECT * FROM viajes
+     WHERE conductor_id = ? AND estado = 'activo' AND fecha_salida BETWEEN ? AND ?
      ORDER BY fecha_salida ASC`,
-    [query.conductor_id, busqueda.origen_ciudad, busqueda.destino_ciudad, busqueda.fecha_desde, busqueda.fecha_hasta, busqueda.asientos_necesarios]
+    [query.conductor_id, busqueda.fecha_desde, busqueda.fecha_hasta]
   );
+  if (candidatos.length === 0) return ok(res, []);
+
+  const ids = candidatos.map((v) => v.id);
+  const placeholders = ids.map(() => "?").join(",");
+  const reservasQueOcupanTodas = await db.all(
+    `SELECT viaje_id, tramo_origen_ciudad, tramo_destino_ciudad, asientos_reservados FROM reservas
+     WHERE viaje_id IN (${placeholders}) AND estado IN ('pendiente','aceptada','completada')`,
+    ids
+  );
+  const reservasPorViaje = {};
+  for (const r of reservasQueOcupanTodas) {
+    (reservasPorViaje[r.viaje_id] = reservasPorViaje[r.viaje_id] || []).push(r);
+  }
+
+  const rows = [];
+  for (const viaje of candidatos) {
+    const camino = corredor.caminoDelViaje(viaje);
+    const tramo = corredor.resolverTramo(camino, busqueda.origen_ciudad, busqueda.destino_ciudad);
+    if (tramo.error) continue; // la búsqueda no es parte de la ruta real de este viaje
+
+    const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, viaje.asientos_totales, reservasPorViaje[viaje.id] || []);
+    const idxOrigen = camino.indexOf(tramo.origen);
+    const idxDestino = camino.indexOf(tramo.destino);
+    const libres = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigen, idxDestino);
+    if (libres < busqueda.asientos_necesarios) continue;
+
+    // Precio del TRAMO que realmente le va a ofrecer (no el del viaje completo, si la búsqueda es
+    // solo una parte de la ruta) — mismo cálculo que reservas.js crear() / viajes.js
+    // desgloseReservaVista(), para que lo que se muestra acá sea lo mismo que se va a cobrar si el
+    // pasajero acepta (ver aceptarOferta más abajo).
+    let precioPorAsiento = viaje.precio_por_asiento;
+    if (!tramo.esCompleto) {
+      const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
+      if (!calculoTramo.error) {
+        precioPorAsiento = pricing.precioTramoConAjuste(viaje, calculoTramo.precioSugerido);
+      }
+    }
+
+    rows.push({
+      id: viaje.id,
+      origen_ciudad: tramo.origen,
+      destino_ciudad: tramo.destino,
+      fecha_salida: viaje.fecha_salida,
+      hora_salida: viaje.hora_salida,
+      precio_por_asiento: precioPorAsiento,
+      asientos_disponibles: libres,
+    });
+  }
   ok(res, rows);
 }
 
@@ -196,11 +251,14 @@ async function ofrecer(req, res, params) {
     return forbidden(res, "Ese viaje no es tuyo.");
   }
   if (viaje.estado !== "activo") return badRequest(res, "Ese viaje ya no está activo.");
-  // Mismas ciudades exactas que pidió el pasajero — evita confusión (el pasajero armó la búsqueda
-  // esperando esa ruta puntual); si el conductor hace un camino parecido pero no exacto, que
-  // publique/ofrezca desde la búsqueda real, no desde acá.
-  if (viaje.origen_ciudad !== busqueda.origen_ciudad || viaje.destino_ciudad !== busqueda.destino_ciudad) {
-    return badRequest(res, `Ese viaje es ${viaje.origen_ciudad} → ${viaje.destino_ciudad}, pero la búsqueda pide ${busqueda.origen_ciudad} → ${busqueda.destino_ciudad}.`);
+  // FIX 21 oct 2026: antes esto exigía que origen/destino del viaje fueran EXACTOS a los de la
+  // búsqueda — ahora acepta cualquier viaje cuya ruta real pase por esas dos ciudades, en el orden
+  // correcto (tramo completo o parcial), igual que el resto de la app (ver corredor.resolverTramo
+  // y el mismo fix en misViajesQueSirven más arriba).
+  const camino = corredor.caminoDelViaje(viaje);
+  const tramo = corredor.resolverTramo(camino, busqueda.origen_ciudad, busqueda.destino_ciudad);
+  if (tramo.error) {
+    return badRequest(res, `Ese viaje no pasa por la ruta que pide la búsqueda (${busqueda.origen_ciudad} → ${busqueda.destino_ciudad}).`);
   }
   if (viaje.fecha_salida < busqueda.fecha_desde || viaje.fecha_salida > busqueda.fecha_hasta) {
     return badRequest(res, `Ese viaje sale el ${viaje.fecha_salida}, fuera del rango que pidió el pasajero (${busqueda.fecha_desde} a ${busqueda.fecha_hasta}).`);
@@ -303,18 +361,23 @@ async function aceptarOferta(req, res, params) {
     );
   }
 
-  // Disponibilidad por tramo (tramo completo siempre acá — "Busco viaje" es solo ciudad origen/
-  // destino, sin tramos parciales, a diferencia de una reserva armada a mano desde la búsqueda de
-  // viajes) — mismo cálculo que reservas.crear()/cambiarEstado().
+  // Disponibilidad por TRAMO real de la búsqueda dentro de la ruta del viaje (FIX 21 oct 2026 — ver
+  // el mismo fix en misViajesQueSirven/ofrecer más arriba: antes esto asumía que la búsqueda era
+  // siempre el viaje completo, usando los extremos del viaje en vez de los de la búsqueda) — mismo
+  // cálculo que reservas.crear()/cambiarEstado().
   const asientos = busqueda.asientos_necesarios;
   const camino = corredor.caminoDelViaje(viaje);
+  const tramo = corredor.resolverTramo(camino, busqueda.origen_ciudad, busqueda.destino_ciudad);
+  if (tramo.error) {
+    return badRequest(res, "El viaje que te habían ofrecido ya no coincide con la ruta de tu búsqueda.");
+  }
   const reservasQueOcupan = await db.all(
     `SELECT tramo_origen_ciudad, tramo_destino_ciudad, asientos_reservados FROM reservas
      WHERE viaje_id = ? AND estado IN ('pendiente','aceptada','completada')`,
     [viaje.id]
   );
-  const idxOrigen = camino.indexOf(viaje.origen_ciudad);
-  const idxDestino = camino.indexOf(viaje.destino_ciudad);
+  const idxOrigen = camino.indexOf(tramo.origen);
+  const idxDestino = camino.indexOf(tramo.destino);
   const libresPorTramo = corredor.asientosLibresPorTramoElemental(camino, viaje.asientos_totales, reservasQueOcupan);
   const libresEnEsteTramo = corredor.minAsientosLibresEnTramo(libresPorTramo, idxOrigen, idxDestino);
   if (asientos > libresEnEsteTramo) {
@@ -326,7 +389,17 @@ async function aceptarOferta(req, res, params) {
     );
   }
 
-  const desglose = await pricing.calcularDesgloseReserva(viaje.precio_por_asiento, asientos);
+  // El precio, igual que en reservas.crear(): tramo completo -> precio del viaje; tramo parcial ->
+  // se recalcula de cero para ESE tramo y se le aplica el mismo % de margen que el conductor eligió
+  // para el viaje completo (ver pricing.precioTramoConAjuste), nunca el precio del viaje completo.
+  let precioPorAsiento = viaje.precio_por_asiento;
+  if (!tramo.esCompleto) {
+    const calculoTramo = await pricing.calcularPorCiudades(tramo.origen, tramo.destino, viaje.asientos_totales);
+    if (calculoTramo.error) return badRequest(res, calculoTramo.error);
+    precioPorAsiento = pricing.precioTramoConAjuste(viaje, calculoTramo.precioSugerido);
+  }
+
+  const desglose = await pricing.calcularDesgloseReserva(precioPorAsiento, asientos);
   const id = newId("res");
   await db.run(
     `INSERT INTO reservas (id, viaje_id, pasajero_id, asientos_reservados, tramo_origen_ciudad, tramo_destino_ciudad, estado, monto_total, comision_plataforma, monto_conductor, pagado, created_at)
@@ -336,8 +409,8 @@ async function aceptarOferta(req, res, params) {
       viaje.id,
       pasajero.id,
       asientos,
-      viaje.origen_ciudad,
-      viaje.destino_ciudad,
+      tramo.origen,
+      tramo.destino,
       // Se crea directo "aceptada": el conductor ya ofreció ESE viaje puntual, y el pasajero
       // aceptando es la confirmación mutua — a diferencia del flujo de siempre, acá no hace falta
       // un paso extra de "el conductor todavía tiene que aceptar".
