@@ -409,9 +409,12 @@ async function initSchema() {
     // usaba en ningún lado (el precio por asiento siempre salía igual al sugerido, sin margen hacia
     // arriba ni hacia abajo) y su valor (15) representaba un ± simétrico que nunca llegó a
     // implementarse — ahora es SOLO el margen hacia arriba; hacia abajo el piso es siempre el precio
-    // ya calculado, sin excepción. Ver migrarTechoAjustePrecio21Oct2026() más abajo para la
-    // corrección del valor ya sembrado en bases que arrancaron antes de este cambio.
-    ["tolerancia_ajuste_pct", "50"],
+    // ya calculado, sin excepción. BAJADO a 25 el 27 oct 2026 (a pedido explícito del usuario: "En
+    // vez de que el chofer pueda agregar el 50% al valor del viaje, quiero el rango entre el valor
+    // que le queda y 25% mas, lo otro que quede igual") — ver migrarTechoAjustePrecio21Oct2026() y
+    // migrarTechoAjustePrecio27Oct2026() más abajo para la corrección del valor ya sembrado en bases
+    // que arrancaron con un default anterior.
+    ["tolerancia_ajuste_pct", "25"],
     // Piso mínimo de precio por asiento: nunca menos de $12.000 (tarifa mínima para trayectos
     // cortos, hasta ~230 km) ni menos de $52 por km recorrido — 500 km da exactamente $26.000.
     // Se aplica el mayor entre el piso y el cálculo por costo real (nafta + peajes / asientos).
@@ -473,6 +476,7 @@ async function initSchema() {
   await migrarComisionPlataforma21Oct2026();
   await migrarComisionMinima21Oct2026();
   await migrarTechoAjustePrecio21Oct2026();
+  await migrarTechoAjustePrecio27Oct2026();
 }
 
 // Migración puntual (24 ago 2026) — a pedido explícito del usuario: "sacalo de ruta 0, mantenelo
@@ -727,6 +731,18 @@ async function migrarTechoAjustePrecio21Oct2026() {
   const fila = await get("SELECT valor FROM config WHERE clave = 'tolerancia_ajuste_pct'");
   if (fila && fila.valor === "15") {
     await run("UPDATE config SET valor = ? WHERE clave = 'tolerancia_ajuste_pct'", ["50"]);
+  }
+}
+
+// Mismo patrón otra vez, 27 oct 2026 (a pedido explícito del usuario: "En vez de que el chofer
+// pueda agregar el 50% al valor del viaje, quiero el rango entre el valor que le queda y 25% mas,
+// lo otro que quede igual") — el margen máximo baja de 50 a 25; el resto del modelo (comisión
+// 15%/mínimo $4000, piso = precio calculado) no se toca. Igual que las anteriores: solo pisa el
+// valor si todavía está en el default viejo (50), para no pisar una edición manual del admin.
+async function migrarTechoAjustePrecio27Oct2026() {
+  const fila = await get("SELECT valor FROM config WHERE clave = 'tolerancia_ajuste_pct'");
+  if (fila && fila.valor === "50") {
+    await run("UPDATE config SET valor = ? WHERE clave = 'tolerancia_ajuste_pct'", ["25"]);
   }
 }
 

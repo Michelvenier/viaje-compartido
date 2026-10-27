@@ -323,7 +323,7 @@ const REGLAS_SECTIONS = [
       que puede cobrar el conductor por asiento: nunca se puede publicar un viaje más barato que eso.</p>
       <h4>Margen que puede elegir el conductor</h4>
       <p>Por encima de ese precio mínimo, el conductor puede elegir cobrarle a cada pasajero un margen adicional, hasta un porcentaje
-      máximo que fija la plataforma y puede actualizarse desde el panel de administración (valor de referencia: 50% por encima del
+      máximo que fija la plataforma y puede actualizarse desde el panel de administración (valor de referencia: 25% por encima del
       mínimo calculado). El conductor fija ese precio una sola vez, al publicar el viaje, y se aplica por igual a cualquier tramo
       parcial que reserve un pasajero más adelante.</p>
       <h4>El precio sale siempre del cálculo automático</h4>
